@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
+    <link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+<div class="card">
+
+    <div class="sticky-header" id="sticky-header">
+        <div class="header">
+            <div class="header-brand">
+                <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
+                <div>
+                    <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
+                    <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- KPIs -->
+        <div class="kpi-row">
+            <div class="kpi-box bg-dark">
+                <span class="kpi-label">Conductores</span>
+                <span class="kpi-value" id="kpi-conductores">--</span>
+            </div>
+            <div class="kpi-box bg-grey">
+                <span class="kpi-label">Total sesiones</span>
+                <span class="kpi-value" id="kpi-sesiones">--</span>
+            </div>
+            <div class="kpi-box bg-green">
+                <span class="kpi-label">Horas conducci&oacute;n</span>
+                <span class="kpi-value" id="kpi-conduccion">--</span>
+            </div>
+            <div class="kpi-box bg-blue">
+                <span class="kpi-label">Horas detenido</span>
+                <span class="kpi-value" id="kpi-detenido">--</span>
+            </div>
+            <div class="kpi-box bg-amber">
+                <span class="kpi-label">Horas ralent&iacute;</span>
+                <span class="kpi-value" id="kpi-ralenti">--</span>
+            </div>
+            <div class="kpi-box bg-teal">
+                <span class="kpi-label">Distancia total</span>
+                <span class="kpi-value" id="kpi-distancia">--</span>
+            </div>
+            <div class="kpi-box bg-amber" id="kpi-sc-box" style="display:none;">
+                <span class="kpi-label">Sin conductor</span>
+                <span class="kpi-value" id="kpi-sc">--</span>
+            </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <div class="field-group">
+                <div class="field">
+                    <label class="field-label">Flota</label>
+                    <select id="filtro-flota" class="select-ctrl">
+                        <option value="TODOS">TODAS</option>
+                        <option value="LOCAL">LOCAL</option>
+                        <option value="PROVINCIA">PROVINCIA</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label class="field-label">Conductor</label>
+                    <input type="text" id="filtro-conductor" class="input-ctrl" placeholder="Nombre o usuario..." style="width:170px;">
+                </div>
+
+                <div class="field">
+                    <label class="field-label">Placa</label>
+                    <input type="text" id="filtro-placa" class="input-ctrl" placeholder="Ej: ABC-123" style="width:120px;">
+                </div>
+
+                <div class="separator"></div>
+
+                <div class="field">
+                    <label class="field-label">Inicio</label>
+                    <div style="display:flex; gap:6px;">
+                        <input type="date" id="fecha-inicio" class="input-ctrl">
+                        <input type="time" id="hora-inicio" class="input-ctrl" value="05:00" style="width:96px;">
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="field-label">Fin</label>
+                    <div style="display:flex; gap:6px;">
+                        <input type="date" id="fecha-fin" class="input-ctrl">
+                        <input type="time" id="hora-fin" class="input-ctrl" value="05:00" style="width:96px;">
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="field-label">&nbsp;</label>
+                    <button class="btn btn-blue" id="btn-consultar" onclick="consultar()">&#128269; Consultar</button>
+                </div>
+            </div>
+
+            <div class="field-group">
+                <label class="toggle-sc">
+                    <input type="checkbox" id="toggle-sc" onchange="toggleSinConductor()">
+                    Mostrar "Sin conductor"
+                </label>
+            </div>
+        </div>
+    </div><!-- /sticky-header -->
+
+    <!-- Tabla -->
+    <div class="table-wrap">
+        <table class="main-table" id="tabla-principal">
+            <thead>
+                <tr>
+                    <th onclick="ordenarPor('conductor')">Conductor / Placa</th>
+                    <th onclick="ordenarPor('flota')">Flota</th>
+                    <th onclick="ordenarPor('inicio')">Inicio sesi&oacute;n</th>
+                    <th onclick="ordenarPor('fin')">Fin sesi&oacute;n</th>
+                    <th onclick="ordenarPor('conduccion')">&#128994; Conducci&oacute;n</th>
+                    <th onclick="ordenarPor('detenido')">&#128309; Detenido</th>
+                    <th onclick="ordenarPor('ralenti')">&#128993; Ralent&iacute;</th>
+                    <th onclick="ordenarPor('distancia')">Distancia</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody id="tbody-principal">
+                <tr><td colspan="9" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+</div>
+
+<script>
+    let geotabApi = null;
+    let conductoresData = [];  // Datos agrupados por conductor
+    let scData = [];           // Datos sin conductor
+    let claveOrden = 'conduccion';
+    let ordenAsc = false;
+    let mostrarSC = false;
+
+    const GRUPOS = { LOCAL: 'b2798', PROVINCIA: 'b279A' };
+    const MAX_DIAS = 7;
+    const PAUSA_MS = 300;
+    const REINTENTOS = 3;
+
+    geotab.addin.ArdepeHorasConduccion = function (api, state) {
+        return {
+            initialize: async function (api, state, callback) {
+                geotabApi = api;
+                configurarFechas();
+                callback();
+            },
+            focus: function () {},
+            blur: function () {}
+        };
+    };
+
+    // ---------------- Fechas ----------------
+
+    function configurarFechas() {
+        const ahora = new Date();
+        const ayer = new Date(ahora);
+        ayer.setDate(ayer.getDate() - 1);
+
+        document.getElementById('fecha-inicio').value = formatFechaInput(ayer);
+        document.getElementById('fecha-fin').value = formatFechaInput(ahora);
+        document.getElementById('fecha-fin').max = formatFechaInput(ahora);
+
+        document.getElementById('fecha-inicio').addEventListener('change', actualizarLimiteFechaFin);
+        actualizarLimiteFechaFin();
+    }
+
+    function actualizarLimiteFechaFin() {
+        const inicioStr = document.getElementById('fecha-inicio').value;
+        if (!inicioStr) return;
+        const [y, m, d] = inicioStr.split('-').map(Number);
+        const maxFin = new Date(y, m - 1, d + MAX_DIAS - 1);
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+        const limFin = maxFin < hoy ? maxFin : hoy;
+        document.getElementById('fecha-fin').min = inicioStr;
+        document.getElementById('fecha-fin').max = formatFechaInput(limFin);
+        // Si la fecha fin actual queda fuera del rango, la restablece
+        const finActual = document.getElementById('fecha-fin').value;
+        if (!finActual || new Date(finActual + 'T00:00:00') < new Date(inicioStr + 'T00:00:00')) {
+            document.getElementById('fecha-fin').value = inicioStr;
+        }
+    }
+
+    function formatFechaInput(d) {
+        function pad(n) { return String(n).padStart(2, '0'); }
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
+    function construirISO(fechaStr, horaStr) {
+        // Construye fecha/hora local (sin ajuste UTC forzado)
+        return new Date(fechaStr + 'T' + horaStr + ':00').toISOString();
+    }
+
+    // ---------------- Consulta ----------------
+
+    async function consultar() {
+        const fechaInicio = document.getElementById('fecha-inicio').value;
+        const horaInicio = document.getElementById('hora-inicio').value;
+        const fechaFin = document.getElementById('fecha-fin').value;
+        const horaFin = document.getElementById('hora-fin').value;
+
+        if (!fechaInicio || !fechaFin) { alert('Selecciona las fechas de consulta.'); return; }
+
+        const fromDate = construirISO(fechaInicio, horaInicio);
+        const toDate = construirISO(fechaFin, horaFin);
+
+        if (new Date(toDate) <= new Date(fromDate)) {
+            alert('La fecha/hora de fin debe ser mayor a la de inicio.');
+            return;
+        }
+
+        const diffDias = (new Date(toDate) - new Date(fromDate)) / (1000 * 60 * 60 * 24);
+        if (diffDias > MAX_DIAS) {
+            alert('El rango m&#225;ximo es de ' + MAX_DIAS + ' d&#237;as.');
+            return;
+        }
+
+        const btn = document.getElementById('btn-consultar');
+        btn.disabled = true;
+        btn.innerText = '&#9203; Consultando...';
+        mostrarEstadoTabla('cargando');
+
+        try {
+            // 1. Obtener dispositivos de los grupos LOCAL/PROVINCIA con serial v&#225;lido
+            const dispositivos = await obtenerDispositivos();
+            if (!dispositivos.length) {
+                mostrarEstadoTabla('empty', 'No se encontraron unidades activas en las flotas configuradas.');
+                return;
+            }
+
+            // 2. Traer trips por bloques de dispositivos
+            actualizarProgreso(0, dispositivos.length, 'Consultando viajes...');
+            const BLOQUE = 10;
+            let todosLosTrips = [];
+            for (let i = 0; i < dispositivos.length; i += BLOQUE) {
+                const lote = dispositivos.slice(i, i + BLOQUE);
+                actualizarProgreso(i, dispositivos.length, 'Dispositivos ' + (i + 1) + '-' + Math.min(i + BLOQUE, dispositivos.length) + ' de ' + dispositivos.length + '...');
+                var promesas = lote.map(function(d) { return obtenerTripsConReintento(d, fromDate, toDate); });
+                const resultados = await Promise.all(promesas);
+                resultados.forEach(function(trips) { todosLosTrips.push.apply(todosLosTrips, trips); });
+                if (i + BLOQUE < dispositivos.length) await sleep(PAUSA_MS);
+            }
+
+            // 3. Crear mapa de dispositivos para acceder r&#225;pidamente a placa/grupo
+            const mapaDisp = {};
+            dispositivos.forEach(function(d) { mapaDisp[d.id] = d; });
+
+            // 4. Procesar y agrupar
+            procesarYAgrupar(todosLosTrips, mapaDisp, fromDate, toDate);
+
+            // 5. Renderizar
+            renderizarTabla();
+            actualizarKPIs();
+
+        } catch (e) {
+            console.error(e);
+            mostrarEstadoTabla('error', 'Error al consultar la API: ' + (e && e.message ? e.message : e));
+        } finally {
+            btn.disabled = false;
+            btn.innerText = '&#128269; Consultar';
+        }
+    }
+
+    async function obtenerDispositivos() {
+        const res = await geotabApi.call("Get", {
+            typeName: "Device",
+            search: {
+                activeState: "Active",
+                groups: [{ id: GRUPOS.LOCAL }, { id: GRUPOS.PROVINCIA }]
+            }
+        });
+        return res.filter(function(d) { return serialValido(d.serialNumber); })
+                  .map(function(d) { return { id: d.id, name: d.name, grupos: (d.groups || []).map(function(g) { return g.id; }) }; });
+    }
+
+    function serialValido(serial) {
+        if (!serial) return false;
+        const s = String(serial).toUpperCase().trim();
+        return s.startsWith('G7') || s.startsWith('G9') || s.startsWith('GA');
+    }
+
+    async function obtenerTripsConReintento(dispositivo, fromDate, toDate) {
+        for (let i = 1; i <= REINTENTOS; i++) {
+            try {
+                const trips = await geotabApi.call("Get", {
+                    typeName: "Trip",
+                    resultsLimit: 5000,
+                    search: {
+                        deviceSearch: { id: dispositivo.id },
+                        fromDate: fromDate,
+                        toDate: toDate,
+                        includeOverlappedTrips: true
+                    }
+                });
+                return trips || [];
+            } catch (e) {
+                if (i === REINTENTOS) return [];
+                await sleep(400 * i);
+            }
+        }
+        return [];
+    }
+
+    // ---------------- Procesamiento y agrupaci&#243;n ----------------
+
+    // Convierte duraci&#243;n en d&#237;as (formato MyGeotab) &#8594; horas decimales
+    function diasAHoras(valor) {
+        if (!valor || isNaN(parseFloat(valor))) return 0;
+        return parseFloat(valor) * 24;
+    }
+
+    function procesarYAgrupar(trips, mapaDisp, fromDate, toDate) {
+        conductoresData = [];
+        scData = [];
+
+        const ahora = new Date();
+        const mapaCondutor = {};
+        const mapaSC = {};    // Sin conductor: agrupado por dispositivo
+
+        trips.forEach(function(t) {
+            const disp = mapaDisp[t.device && t.device.id];
+            if (!disp) return;
+
+            const placa = disp.name || '&#8212;';
+            const grupoIds = disp.grupos || [];
+            const esLocal = grupoIds.includes(GRUPOS.LOCAL);
+            const esProv = grupoIds.includes(GRUPOS.PROVINCIA);
+            const flota = esLocal ? 'LOCAL' : (esProv ? 'PROVINCIA' : 'OTRO');
+
+            const inicio = t.start ? new Date(t.start) : null;
+            const fin = t.stop ? new Date(t.stop) : null;
+            const esSinFin = !fin || fin > ahora;
+
+            const conduccion = diasAHoras(t.drivingDuration);
+            const detenido = diasAHoras(t.stopDuration);
+            const ralenti = diasAHoras(t.idlingDuration);
+            const distancia = parseFloat(t.distance) || 0;
+
+            const driverId = t.driver && t.driver.id;
+            const esSinConductor = !driverId || driverId === 'UnknownDriverId';
+
+            if (esSinConductor) {
+                // Agrupar por dispositivo para "sin conductor"
+                const key = disp.id;
+                if (!mapaSC[key]) {
+                    mapaSC[key] = {
+                        id: key, placa, flota,
+                        conductor: 'SIN CONDUCTOR',
+                        sesiones: []
+                    };
+                }
+                mapaSC[key].sesiones.push({
+                    placa, flota, inicio, fin, esSinFin,
+                    conduccion, detenido, ralenti, distancia, sinConductor: true
+                });
+            } else {
+                // Agrupar por conductor
+                const nombre = t.driver.name || driverId;
+                const key = driverId;
+                if (!mapaCondutor[key]) {
+                    mapaCondutor[key] = {
+                        id: key, nombre, flota,
+                        sesiones: []
+                    };
+                }
+                mapaCondutor[key].sesiones.push({
+                    placa, flota, inicio, fin, esSinFin,
+                    conduccion, detenido, ralenti, distancia, sinConductor: false
+                });
+                // Si el conductor aparece en ambas flotas, mostrar la m&#225;s frecuente
+                if (flota !== mapaCondutor[key].flota) {
+                    var cLocal = mapaCondutor[key].sesiones.filter(function(s) { return s.flota === 'LOCAL'; }).length;
+                    var cProv = mapaCondutor[key].sesiones.filter(function(s) { return s.flota === 'PROVINCIA'; }).length;
+                    mapaCondutor[key].flota = cLocal >= cProv ? 'LOCAL' : 'PROVINCIA';
+                }
+            }
+        });
+
+        // Convertir a arrays y calcular totales
+        conductoresData = Object.values(mapaCondutor).map(function(c) {
+            c.sesiones.sort(function(a, b) { return (a.inicio || 0) - (b.inicio || 0); });
+            c.totalConduccion = c.sesiones.reduce(function(s, x) { return s + x.conduccion; }, 0);
+            c.totalDetenido = c.sesiones.reduce(function(s, x) { return s + x.detenido; }, 0);
+            c.totalRalenti = c.sesiones.reduce(function(s, x) { return s + x.ralenti; }, 0);
+            c.totalDistancia = c.sesiones.reduce(function(s, x) { return s + x.distancia; }, 0);
+            c.estaActivo = c.sesiones.some(function(s) { return s.esSinFin; });
+            c.placas = c.sesiones.map(function(s) { return s.placa; }).filter(function(v, i, a) { return a.indexOf(v) === i; });
+            c.abierto = false;
+            return c;
+        });
+
+        scData = Object.values(mapaSC).map(function(c) {
+            c.sesiones.sort(function(a, b) { return (a.inicio || 0) - (b.inicio || 0); });
+            c.totalConduccion = c.sesiones.reduce(function(s, x) { return s + x.conduccion; }, 0);
+            c.totalDetenido = c.sesiones.reduce(function(s, x) { return s + x.detenido; }, 0);
+            c.totalRalenti = c.sesiones.reduce(function(s, x) { return s + x.ralenti; }, 0);
+            c.totalDistancia = c.sesiones.reduce(function(s, x) { return s + x.distancia; }, 0);
+            c.estaActivo = c.sesiones.some(function(s) { return s.esSinFin; });
+            c.abierto = false;
+            return c;
+        });
+
+        ordenarDatos();
+    }
+
+    // ---------------- Filtros y orden ----------------
+
+    function filtrarDatos(lista) {
+        const fFlota = document.getElementById('filtro-flota').value;
+        const fCond = document.getElementById('filtro-conductor').value.trim().toUpperCase();
+        const fPlaca = document.getElementById('filtro-placa').value.trim().toUpperCase();
+
+        return lista.filter(function(c) {
+            const pasaFlota = fFlota === 'TODOS' || c.flota === fFlota;
+            const pasaCond = !fCond || (c.nombre || c.conductor || '').toUpperCase().includes(fCond);
+            const pasaPlaca = !fPlaca || (c.placas || [c.placa]).some(function(p) { return p.toUpperCase().includes(fPlaca); });
+            return pasaFlota && pasaCond && pasaPlaca;
+        });
+    }
+
+    function ordenarPor(clave) {
+        if (claveOrden === clave) ordenAsc = !ordenAsc;
+        else { claveOrden = clave; ordenAsc = clave === 'conductor'; }
+        ordenarDatos();
+        renderizarTabla();
+        actualizarKPIs();
+    }
+
+    function ordenarDatos() {
+        var campo = {
+            conductor: function(c) { return (c.nombre || c.conductor || '').toLowerCase(); },
+            flota: function(c) { return c.flota; },
+            conduccion: function(c) { return c.totalConduccion; },
+            detenido: function(c) { return c.totalDetenido; },
+            ralenti: function(c) { return c.totalRalenti; },
+            distancia: function(c) { return c.totalDistancia; }
+        }[claveOrden] || function(c) { return c.totalConduccion; };
+
+        var comp = function(a, b) {
+            const va = campo(a), vb = campo(b);
+            if (typeof va === 'string') return ordenAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+            return ordenAsc ? va - vb : vb - va;
+        };
+
+        conductoresData.sort(comp);
+        scData.sort(comp);
+    }
+
+    function toggleSinConductor() {
+        mostrarSC = document.getElementById('toggle-sc').checked;
+        document.getElementById('kpi-sc-box').style.display = mostrarSC ? 'flex' : 'none';
+        renderizarTabla();
+        actualizarKPIs();
+    }
+
+    // ---------------- Renderizado ----------------
+
+    function renderizarTabla() {
+        const tbody = document.getElementById('tbody-principal');
+        tbody.innerHTML = '';
+
+        var lista = filtrarDatos(conductoresData);
+        let listaSC = mostrarSC ? filtrarDatos(scData) : [];
+
+        const total = lista.length + listaSC.length;
+        if (total === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="estado-tabla">Sin resultados para el filtro seleccionado.</td></tr>';
+            return;
+        }
+
+        // Renderizar conductores normales
+        lista.forEach(function(c) { tbody.appendChild(crearFilaConductor(c, false)); if (c.abierto) { c.sesiones.forEach(function(s) { tbody.appendChild(crearFilaSesion(s, c)); }); } });
+
+        // Renderizar sin conductor
+        if (mostrarSC) {
+            listaSC.forEach(function(c) { tbody.appendChild(crearFilaConductor(c, true)); if (c.abierto) { c.sesiones.forEach(function(s) { tbody.appendChild(crearFilaSesion(s, c)); }); } });
+        }
+    }
+
+    function crearFilaConductor(c, esSC) {
+        const tr = document.createElement('tr');
+        tr.className = 'fila-conductor';
+
+        const badgeFlota = c.flota === 'LOCAL'
+            ? '<span class="badge badge-local">LOCAL</span>'
+            : '<span class="badge badge-provincia">PROVINCIA</span>';
+
+        const estadoBadge = c.estaActivo
+            ? (esSC ? '<span class="badge badge-sc-mov">En movimiento sin conductor</span>' : '<span class="badge badge-activo">&#128994; Actualmente logueado</span>')
+            : '<span class="badge badge-cerrado">Cerrado</span>';
+
+        const nsesiones = c.sesiones.length;
+        const placasTexto = esSC ? c.placa : (c.placas || []).join(', ');
+
+        tr.innerHTML =
+            '<td>' +
+                '<span class="expand-icon ' + (c.abierto ? 'abierto' : '') + '">&#9654;</span>' +
+                '<span class="conductor-nombre">' + (esSC ? '&#9888; SIN CONDUCTOR' : esc(c.nombre)) + '</span>' +
+                '<div class="conductor-meta">' + esc(placasTexto) + ' &#183; ' + nsesiones + ' sesi&#243;n' + (nsesiones !== 1 ? 'es' : '') + '</div>' +
+            '</td>' +
+            '<td>' + badgeFlota + '</td>' +
+            '<td colspan="2" style="color:#8892a0; font-size:11px; font-style:italic;">Ver detalle &#9662;</td>' +
+            '<td><span class="tiempo-cell"><span class="tiempo-dot dot-conduccion"></span>' + formatHoras(c.totalConduccion) + '</span></td>' +
+            '<td><span class="tiempo-cell"><span class="tiempo-dot dot-detenido"></span>' + formatHoras(c.totalDetenido) + '</span></td>' +
+            '<td><span class="tiempo-cell"><span class="tiempo-dot dot-ralenti"></span>' + formatHoras(c.totalRalenti) + '</span></td>' +
+            '<td><b>' + c.totalDistancia.toFixed(1) + '</b> km</td>' +
+            '<td>' + estadoBadge + '</td>';
+
+        tr.onclick = function() { c.abierto = !c.abierto; renderizarTabla(); };
+
+        return tr;
+    }
+
+    function crearFilaSesion(s, c) {
+        const tr = document.createElement('tr');
+        tr.className = 'fila-sesion';
+
+        const inicioTxt = s.inicio ? formatFechaHora(s.inicio) : '&#8212;';
+        let finTxt;
+        if (s.esSinFin) {
+            finTxt = s.sinConductor
+                ? '<span class="badge badge-sc-mov" style="font-size:9px;">En movimiento sin conductor</span>'
+                : '<span class="badge badge-activo" style="font-size:9px;">&#128994; Actualmente logueado</span>';
+        } else {
+            finTxt = s.fin ? formatFechaHora(s.fin) : '&#8212;';
+        }
+
+        const badgeFlota = s.flota === 'LOCAL'
+            ? '<span class="badge badge-local">LOCAL</span>'
+            : '<span class="badge badge-provincia">PROVINCIA</span>';
+
+        tr.innerHTML =
+            '<td style="padding-left:36px;">' +
+                '<span style="font-weight:700; color:#002d72;">' + esc(s.placa) + '</span>' +
+            '</td>' +
+            '<td>' + badgeFlota + '</td>' +
+            '<td style="font-size:11.5px;">' + inicioTxt + '</td>' +
+            '<td style="font-size:11.5px;">' + finTxt + '</td>' +
+            '<td><span class="tiempo-cell"><span class="tiempo-dot dot-conduccion"></span>' + formatHoras(s.conduccion) + '</span></td>' +
+            '<td><span class="tiempo-cell"><span class="tiempo-dot dot-detenido"></span>' + formatHoras(s.detenido) + '</span></td>' +
+            '<td><span class="tiempo-cell"><span class="tiempo-dot dot-ralenti"></span>' + formatHoras(s.ralenti) + '</span></td>' +
+            '<td>' + s.distancia.toFixed(1) + ' km</td>' +
+            '<td></td>';
+
+        return tr;
+    }
+
+    // ---------------- KPIs ----------------
+
+    function actualizarKPIs() {
+        const lista = filtrarDatos(conductoresData);
+        const listaSC = filtrarDatos(scData);
+
+        const totalSesiones = lista.reduce(function(s, c) { return s + c.sesiones.length; }, 0);
+        const totalConduccion = lista.reduce(function(s, c) { return s + c.totalConduccion; }, 0);
+        const totalDetenido = lista.reduce(function(s, c) { return s + c.totalDetenido; }, 0);
+        const totalRalenti = lista.reduce(function(s, c) { return s + c.totalRalenti; }, 0);
+        const totalDistancia = lista.reduce(function(s, c) { return s + c.totalDistancia; }, 0);
+
+        document.getElementById('kpi-conductores').innerText = lista.length;
+        document.getElementById('kpi-sesiones').innerText = totalSesiones;
+        document.getElementById('kpi-conduccion').innerText = formatHoras(totalConduccion);
+        document.getElementById('kpi-detenido').innerText = formatHoras(totalDetenido);
+        document.getElementById('kpi-ralenti').innerText = formatHoras(totalRalenti);
+        document.getElementById('kpi-distancia').innerText = totalDistancia.toFixed(0) + ' km';
+        document.getElementById('kpi-sc').innerText = listaSC.length;
+    }
+
+    // ---------------- Utilidades ----------------
+
+    function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+    function esc(str) {
+        const d = document.createElement('div');
+        d.innerText = str || '';
+        return d.innerHTML;
+    }
+
+    function formatHoras(horas) {
+        if (!horas || isNaN(horas)) return '0h 0m';
+        const h = Math.floor(horas);
+        const m = Math.round((horas - h) * 60);
+        return h + 'h ' + m + 'm';
+    }
+
+    function formatFechaHora(d) {
+        if (!d) return '&#8212;';
+        return d.toLocaleString('es-PE', {
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+    }
+
+    function mostrarEstadoTabla(tipo, mensaje) {
+        const tbody = document.getElementById('tbody-principal');
+        if (tipo === 'cargando') {
+            tbody.innerHTML =
+                '<tr><td colspan="9" class="estado-tabla">' +
+                    '<div class="spinner"></div>' +
+                    '<div id="progreso-texto" class="progreso-texto">Preparando consulta...</div>' +
+                    '<div class="progreso-bar-wrap"><div class="progreso-bar-fill" id="progreso-fill"></div></div>' +
+                '</td></tr>';
+        } else if (tipo === 'empty') {
+            tbody.innerHTML = '<tr><td colspan="9" class="estado-tabla">' + mensaje + '</td></tr>';
+        } else if (tipo === 'error') {
+            tbody.innerHTML = '<tr><td colspan="9" class="estado-tabla" style="color:#c0392b;">&#9888; ' + mensaje + '</td></tr>';
+        }
+    }
+
+    function actualizarProgreso(idx, total, texto) {
+        const el = document.getElementById('progreso-texto');
+        const fill = document.getElementById('progreso-fill');
+        if (el) el.innerText = texto;
+        if (fill) fill.style.width = Math.round((idx / total) * 100) + '%';
+    }
+</script>
+</body>
+</html>
