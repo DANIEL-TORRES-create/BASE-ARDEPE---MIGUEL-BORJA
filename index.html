@@ -6,7 +6,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
-    <link rel="stylesheet" href="styles.css?v=2">
+    <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
 <div class="card">
@@ -57,7 +57,7 @@
             <div class="field-group">
                 <div class="field">
                     <label class="field-label">Flota</label>
-                    <select id="filtro-flota" class="select-ctrl">
+                    <select id="filtro-flota" class="select-ctrl" onchange="filtrosCambiaron()">
                         <option value="TODOS">TODAS</option>
                         <option value="LOCAL">LOCAL</option>
                         <option value="PROVINCIA">PROVINCIA</option>
@@ -66,12 +66,12 @@
 
                 <div class="field">
                     <label class="field-label">Conductor</label>
-                    <input type="text" id="filtro-conductor" class="input-ctrl" placeholder="Nombre o usuario..." style="width:170px;">
+                    <input type="text" id="filtro-conductor" class="input-ctrl" placeholder="Nombre o usuario..." style="width:170px;" oninput="filtrosCambiaron()">
                 </div>
 
                 <div class="field">
                     <label class="field-label">Placa</label>
-                    <input type="text" id="filtro-placa" class="input-ctrl" placeholder="Ej: ABC-123" style="width:120px;">
+                    <input type="text" id="filtro-placa" class="input-ctrl" placeholder="Ej: ABC-123" style="width:120px;" oninput="filtrosCambiaron()">
                 </div>
 
                 <div class="separator"></div>
@@ -351,6 +351,9 @@
         scData = [];
 
         const ahora = new Date();
+        const filtroDesde = new Date(fromDate);
+        const filtroHasta = new Date(toDate);
+        const consultaLlegaAlPresente = filtroHasta >= ahora;
         const mapaCondutor = {};
         const mapaSC = {};    // Sin conductor: agrupado por dispositivo
 
@@ -364,14 +367,38 @@
             const esProv = grupoIds.includes(GRUPOS.PROVINCIA);
             const flota = esLocal ? 'LOCAL' : (esProv ? 'PROVINCIA' : 'OTRO');
 
-            const inicio = t.start ? new Date(t.start) : null;
-            const fin = t.stop ? new Date(t.stop) : null;
-            const esSinFin = !fin || fin > ahora;
+            const inicioReal = t.start ? new Date(t.start) : null;
+            const finReal = t.stop ? new Date(t.stop) : null;
+            // Ongoing real: sin fecha de fin, o con fecha de fin en el futuro respecto a AHORA
+            // (esto es independiente del filtro elegido, es el estado real del viaje).
+            const esSinFinReal = !finReal || finReal > ahora;
 
-            const conduccion = timeSpanAHoras(t.drivingDuration);
-            const detenido = timeSpanAHoras(t.stopDuration);
-            const ralenti = timeSpanAHoras(t.idlingDuration);
-            const distancia = parseFloat(t.distance) || 0;
+            if (!inicioReal) return; // sin inicio no hay nada que procesar
+
+            // --- Recorte al rango del filtro ---
+            // Si el viaje se extiende fuera del rango consultado, solo se cuenta la
+            // porcion de tiempo DENTRO del filtro (proporcional sobre conduccion,
+            // detenido, ralenti y distancia).
+            const finParaRecorte = finReal || (consultaLlegaAlPresente ? ahora : filtroHasta);
+            const solapeInicio = inicioReal > filtroDesde ? inicioReal : filtroDesde;
+            const solapeFin = finParaRecorte < filtroHasta ? finParaRecorte : filtroHasta;
+            if (solapeFin <= solapeInicio) return; // sin solapamiento real con el filtro
+
+            const duracionTotalMs = finParaRecorte - inicioReal;
+            const duracionSolapeMs = solapeFin - solapeInicio;
+            const factor = duracionTotalMs > 0 ? Math.min(1, duracionSolapeMs / duracionTotalMs) : 1;
+
+            const inicio = solapeInicio;
+            // "En curso" solo aplica si el viaje realmente sigue abierto Y el filtro
+            // llega hasta el momento actual (o futuro). Si el filtro es completamente
+            // pasado, se muestra el corte al limite del filtro como fin.
+            const esSinFin = esSinFinReal && consultaLlegaAlPresente;
+            const fin = esSinFin ? null : (finReal ? (finReal < filtroHasta ? finReal : filtroHasta) : filtroHasta);
+
+            const conduccion = timeSpanAHoras(t.drivingDuration) * factor;
+            const detenido = timeSpanAHoras(t.stopDuration) * factor;
+            const ralenti = timeSpanAHoras(t.idlingDuration) * factor;
+            const distancia = (parseFloat(t.distance) || 0) * factor;
 
             const driverId = t.driver && t.driver.id;
             const esSinConductor = !driverId || driverId === 'UnknownDriverId';
@@ -490,6 +517,13 @@
         actualizarKPIs();
     }
 
+    // Los filtros de flota/conductor/placa solo filtran los datos YA CARGADOS
+    // (no vuelven a consultar la API).
+    function filtrosCambiaron() {
+        renderizarTabla();
+        actualizarKPIs();
+    }
+
     // ---------------- Renderizado ----------------
 
     function renderizarTabla() {
@@ -523,8 +557,8 @@
             : '<span class="badge badge-provincia">PROVINCIA</span>';
 
         const estadoBadge = c.estaActivo
-            ? (esSC ? '<span class="badge badge-sc-mov">En movimiento sin conductor</span>' : '<span class="badge badge-activo">&#128994; Actualmente logueado</span>')
-            : '<span class="badge badge-cerrado">Cerrado</span>';
+            ? (esSC ? '<span class="badge badge-sc-mov">En movimiento sin conductor</span>' : '<span class="badge badge-activo">&#128994; VIAJE EN CURSO</span>')
+            : '<span class="badge badge-cerrado">VIAJE CULMINADO</span>';
 
         const nsesiones = c.sesiones.length;
         const placasTexto = esSC ? c.placa : (c.placas || []).join(', ');
@@ -557,7 +591,7 @@
         if (s.esSinFin) {
             finTxt = s.sinConductor
                 ? '<span class="badge badge-sc-mov" style="font-size:9px;">En movimiento sin conductor</span>'
-                : '<span class="badge badge-activo" style="font-size:9px;">&#128994; Actualmente logueado</span>';
+                : '<span class="badge badge-activo" style="font-size:9px;">&#128994; VIAJE EN CURSO</span>';
         } else {
             finTxt = s.fin ? formatFechaHora(s.fin) : '&#8212;';
         }
