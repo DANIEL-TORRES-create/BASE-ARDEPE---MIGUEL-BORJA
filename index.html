@@ -6,20 +6,18 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
-    <link rel="stylesheet" href="style.css?v=1">
+    <link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
 <div class="card">
 
     <div class="sticky-header" id="sticky-header">
         <div class="header">
-            <div class="header-brand">
-                <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
-                <div>
-                    <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                    <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida</p>
-                </div>
+            <div>
+                <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida</p>
             </div>
+            <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
 
         <!-- KPIs -->
@@ -96,7 +94,7 @@
 
                 <div class="field">
                     <label class="field-label">&nbsp;</label>
-                    <button class="btn btn-blue" id="btn-consultar" onclick="consultar()">&#128269; Consultar</button>
+                    <button class="btn btn-blue" id="btn-consultar" onclick="consultar()">🔍 Consultar</button>
                 </div>
             </div>
 
@@ -140,6 +138,8 @@
     let claveOrden = 'conduccion';
     let ordenAsc = false;
     let mostrarSC = false;
+    let mapaConductoresGlobal = {}; // driverId -> nombre completo
+    let promesaConductores = null;
 
     const GRUPOS = { LOCAL: 'b2798', PROVINCIA: 'b279A' };
     const MAX_DIAS = 7;
@@ -151,12 +151,27 @@
             initialize: async function (api, state, callback) {
                 geotabApi = api;
                 configurarFechas();
+                promesaConductores = cargarConductores(); // en paralelo, no bloquea la carga inicial
                 callback();
             },
             focus: function () {},
             blur: function () {}
         };
     };
+
+    // Trae TODOS los conductores de una sola vez (evita N consultas individuales).
+    async function cargarConductores() {
+        try {
+            const res = await geotabApi.call("Get", { typeName: "User", search: { isDriver: true } });
+            mapaConductoresGlobal = {};
+            res.forEach(function (u) {
+                const nombre = ((u.firstName || '') + ' ' + (u.lastName || '')).trim();
+                mapaConductoresGlobal[u.id] = nombre || u.name || u.id;
+            });
+        } catch (e) {
+            console.error('Error cargando conductores', e);
+        }
+    }
 
     // ---------------- Fechas ----------------
 
@@ -255,6 +270,10 @@
             dispositivos.forEach(function(d) { mapaDisp[d.id] = d; });
 
             // 4. Procesar y agrupar
+            // Asegura que el mapa de conductores este listo antes de agrupar
+            if (promesaConductores) await promesaConductores;
+            if (Object.keys(mapaConductoresGlobal).length === 0) await cargarConductores();
+
             procesarYAgrupar(todosLosTrips, mapaDisp, fromDate, toDate);
 
             // 5. Renderizar
@@ -266,7 +285,7 @@
             mostrarEstadoTabla('error', 'Error al consultar la API: ' + (e && e.message ? e.message : e));
         } finally {
             btn.disabled = false;
-            btn.innerText = '&#128269; Consultar';
+            btn.innerText = '🔍 Consultar';
         }
     }
 
@@ -312,10 +331,19 @@
 
     // ---------------- Procesamiento y agrupaci&#243;n ----------------
 
-    // Convierte duraci&#243;n en d&#237;as (formato MyGeotab) &#8594; horas decimales
-    function diasAHoras(valor) {
-        if (!valor || isNaN(parseFloat(valor))) return 0;
-        return parseFloat(valor) * 24;
+    // Trip.drivingDuration / stopDuration / idlingDuration son strings TimeSpan de MyGeotab:
+    // "hh:mm:ss" o con d&#237;as "d.hh:mm:ss" &#8212; NO son fracciones decimales de d&#237;a.
+    function timeSpanAHoras(valor) {
+        if (!valor) return 0;
+        const partes = String(valor).split('.');
+        let dias = 0, resto = valor;
+        if (partes.length === 2 && partes[0].match(/^\d+$/)) {
+            dias = parseInt(partes[0], 10);
+            resto = partes[1];
+        }
+        const comp = resto.split(':').map(Number);
+        const h = comp[0] || 0, m = comp[1] || 0, s = comp[2] || 0;
+        return dias * 24 + h + m / 60 + s / 3600;
     }
 
     function procesarYAgrupar(trips, mapaDisp, fromDate, toDate) {
@@ -340,9 +368,9 @@
             const fin = t.stop ? new Date(t.stop) : null;
             const esSinFin = !fin || fin > ahora;
 
-            const conduccion = diasAHoras(t.drivingDuration);
-            const detenido = diasAHoras(t.stopDuration);
-            const ralenti = diasAHoras(t.idlingDuration);
+            const conduccion = timeSpanAHoras(t.drivingDuration);
+            const detenido = timeSpanAHoras(t.stopDuration);
+            const ralenti = timeSpanAHoras(t.idlingDuration);
             const distancia = parseFloat(t.distance) || 0;
 
             const driverId = t.driver && t.driver.id;
@@ -364,7 +392,7 @@
                 });
             } else {
                 // Agrupar por conductor
-                const nombre = t.driver.name || driverId;
+                const nombre = mapaConductoresGlobal[driverId] || driverId;
                 const key = driverId;
                 if (!mapaCondutor[key]) {
                     mapaCondutor[key] = {
