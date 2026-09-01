@@ -44,10 +44,11 @@ body {
 }
 
 .logo-header {
-    height: 52px;
+    height: 76px;
     width: auto;
     object-fit: contain;
     flex: 0 0 auto;
+    align-self: center;
 }
 
 .title {
@@ -313,6 +314,6 @@ body {
 }
 
 @media (max-width: 560px) {
-    .logo-header { height: 38px; }
+    .logo-header { height: 48px; }
     .header-brand { gap: 10px; }
 }
