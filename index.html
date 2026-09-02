@@ -276,7 +276,16 @@
 
             procesarYAgrupar(todosLosTrips, mapaDisp, fromDate, toDate);
 
-            // 5. Renderizar
+            // 5. Si el filtro llega al presente, confirmar en vivo (DeviceStatusInfo) el
+            // estado real de las sesiones que quedaron abiertas segun Trip &#8212; ya que el
+            // ultimo viaje puede tardar en registrarse como abierto aunque la unidad
+            // siga en movimiento ahora mismo.
+            const ahoraCheck = new Date();
+            if (new Date(toDate) >= ahoraCheck) {
+                await confirmarEstadoEnVivo(mapaDisp);
+            }
+
+            // 6. Renderizar
             renderizarTabla();
             actualizarKPIs();
 
@@ -317,7 +326,7 @@
                         deviceSearch: { id: dispositivo.id },
                         fromDate: fromDate,
                         toDate: toDate,
-                        includeOverlappedTrips: true
+                        includeOverlappedTrips: false
                     }
                 });
                 return trips || [];
@@ -367,38 +376,19 @@
             const esProv = grupoIds.includes(GRUPOS.PROVINCIA);
             const flota = esLocal ? 'LOCAL' : (esProv ? 'PROVINCIA' : 'OTRO');
 
-            const inicioReal = t.start ? new Date(t.start) : null;
-            const finReal = t.stop ? new Date(t.stop) : null;
-            // Ongoing real: sin fecha de fin, o con fecha de fin en el futuro respecto a AHORA
-            // (esto es independiente del filtro elegido, es el estado real del viaje).
-            const esSinFinReal = !finReal || finReal > ahora;
+            const inicio = t.start ? new Date(t.start) : null;
+            if (!inicio) return; // sin inicio no hay nada que procesar
 
-            if (!inicioReal) return; // sin inicio no hay nada que procesar
+            // Con includeOverlappedTrips:false, el servidor YA recorta el viaje al
+            // rango [fromDate, toDate] con datos REALES (no estimados). Si el viaje
+            // sigue abierto (no ha terminado), t.stop viene vacio.
+            const fin = t.stop ? new Date(t.stop) : null;
+            const esSinFin = !fin && consultaLlegaAlPresente; // se confirma/corrige mas abajo con DeviceStatusInfo en vivo
 
-            // --- Recorte al rango del filtro ---
-            // Si el viaje se extiende fuera del rango consultado, solo se cuenta la
-            // porcion de tiempo DENTRO del filtro (proporcional sobre conduccion,
-            // detenido, ralenti y distancia).
-            const finParaRecorte = finReal || (consultaLlegaAlPresente ? ahora : filtroHasta);
-            const solapeInicio = inicioReal > filtroDesde ? inicioReal : filtroDesde;
-            const solapeFin = finParaRecorte < filtroHasta ? finParaRecorte : filtroHasta;
-            if (solapeFin <= solapeInicio) return; // sin solapamiento real con el filtro
-
-            const duracionTotalMs = finParaRecorte - inicioReal;
-            const duracionSolapeMs = solapeFin - solapeInicio;
-            const factor = duracionTotalMs > 0 ? Math.min(1, duracionSolapeMs / duracionTotalMs) : 1;
-
-            const inicio = solapeInicio;
-            // "En curso" solo aplica si el viaje realmente sigue abierto Y el filtro
-            // llega hasta el momento actual (o futuro). Si el filtro es completamente
-            // pasado, se muestra el corte al limite del filtro como fin.
-            const esSinFin = esSinFinReal && consultaLlegaAlPresente;
-            const fin = esSinFin ? null : (finReal ? (finReal < filtroHasta ? finReal : filtroHasta) : filtroHasta);
-
-            const conduccion = timeSpanAHoras(t.drivingDuration) * factor;
-            const detenido = timeSpanAHoras(t.stopDuration) * factor;
-            const ralenti = timeSpanAHoras(t.idlingDuration) * factor;
-            const distancia = (parseFloat(t.distance) || 0) * factor;
+            const conduccion = timeSpanAHoras(t.drivingDuration);
+            const detenido = timeSpanAHoras(t.stopDuration);
+            const ralenti = timeSpanAHoras(t.idlingDuration);
+            const distancia = parseFloat(t.distance) || 0;
 
             const driverId = t.driver && t.driver.id;
             const esSinConductor = !driverId || driverId === 'UnknownDriverId';
@@ -414,7 +404,7 @@
                     };
                 }
                 mapaSC[key].sesiones.push({
-                    placa, flota, inicio, fin, esSinFin,
+                    placa, flota, deviceId: disp.id, inicio, fin, esSinFin,
                     conduccion, detenido, ralenti, distancia, sinConductor: true
                 });
             } else {
@@ -428,7 +418,7 @@
                     };
                 }
                 mapaCondutor[key].sesiones.push({
-                    placa, flota, inicio, fin, esSinFin,
+                    placa, flota, deviceId: disp.id, inicio, fin, esSinFin,
                     conduccion, detenido, ralenti, distancia, sinConductor: false
                 });
                 // Si el conductor aparece en ambas flotas, mostrar la m&#225;s frecuente
@@ -447,7 +437,7 @@
             c.totalDetenido = c.sesiones.reduce(function(s, x) { return s + x.detenido; }, 0);
             c.totalRalenti = c.sesiones.reduce(function(s, x) { return s + x.ralenti; }, 0);
             c.totalDistancia = c.sesiones.reduce(function(s, x) { return s + x.distancia; }, 0);
-            c.estaActivo = c.sesiones.some(function(s) { return s.esSinFin; });
+            c.estaActivo = consultaLlegaAlPresente && c.sesiones.some(function(s) { return s.esSinFin; });
             c.placas = c.sesiones.map(function(s) { return s.placa; }).filter(function(v, i, a) { return a.indexOf(v) === i; });
             c.abierto = false;
             return c;
@@ -459,7 +449,7 @@
             c.totalDetenido = c.sesiones.reduce(function(s, x) { return s + x.detenido; }, 0);
             c.totalRalenti = c.sesiones.reduce(function(s, x) { return s + x.ralenti; }, 0);
             c.totalDistancia = c.sesiones.reduce(function(s, x) { return s + x.distancia; }, 0);
-            c.estaActivo = c.sesiones.some(function(s) { return s.esSinFin; });
+            c.estaActivo = consultaLlegaAlPresente && c.sesiones.some(function(s) { return s.esSinFin; });
             c.abierto = false;
             return c;
         });
@@ -508,6 +498,58 @@
 
         conductoresData.sort(comp);
         scData.sort(comp);
+    }
+
+    // Confirma en vivo (DeviceStatusInfo) si la ultima sesion de cada grupo sigue
+    // realmente activa &#8212; el ultimo Trip puede tardar en reflejar que la unidad
+    // sigue en movimiento, asi que esto corrige ese retraso.
+    async function confirmarEstadoEnVivo(mapaDisp) {
+        const grupos = conductoresData.concat(scData);
+        if (grupos.length === 0) return;
+
+        // Un solo DeviceStatusInfo por dispositivo unico (evita duplicar consultas)
+        const deviceIdsUnicos = [];
+        grupos.forEach(function(c) {
+            const ultima = c.sesiones[c.sesiones.length - 1];
+            if (ultima && ultima.deviceId && deviceIdsUnicos.indexOf(ultima.deviceId) === -1) {
+                deviceIdsUnicos.push(ultima.deviceId);
+            }
+        });
+
+        const mapaEstadoVivo = {};
+        const BLOQUE = 15;
+        for (let i = 0; i < deviceIdsUnicos.length; i += BLOQUE) {
+            const lote = deviceIdsUnicos.slice(i, i + BLOQUE);
+            const promesas = lote.map(function(devId) {
+                return geotabApi.call("Get", { typeName: "DeviceStatusInfo", search: { deviceSearch: { id: devId } } })
+                    .then(function(res) { return { devId, info: res && res[0] }; })
+                    .catch(function() { return { devId, info: null }; });
+            });
+            const resultados = await Promise.all(promesas);
+            resultados.forEach(function(r) { mapaEstadoVivo[r.devId] = r.info; });
+            if (i + BLOQUE < deviceIdsUnicos.length) await sleep(200);
+        }
+
+        grupos.forEach(function(c) {
+            const ultima = c.sesiones[c.sesiones.length - 1];
+            if (!ultima || !ultima.deviceId) return;
+            const info = mapaEstadoVivo[ultima.deviceId];
+            if (!info) return;
+
+            const driverIdVivo = info.driver && info.driver.id;
+            const esSinConductorVivo = !driverIdVivo || driverIdVivo === 'UnknownDriverId';
+
+            let activoVivo;
+            if (c.conductor === 'SIN CONDUCTOR') {
+                activoVivo = esSinConductorVivo; // sigue sin nadie logueado
+            } else {
+                activoVivo = (driverIdVivo === c.id); // el conductor sigue siendo el mismo
+            }
+
+            c.estaActivo = activoVivo;
+            ultima.esSinFin = activoVivo;
+            if (activoVivo) ultima.fin = null;
+        });
     }
 
     function toggleSinConductor() {
