@@ -15,7 +15,7 @@
         <div class="header">
             <div>
                 <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v5)</span></p>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v6)</span></p>
             </div>
             <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
@@ -35,11 +35,11 @@
                 <span class="kpi-value" id="kpi-conduccion">--</span>
             </div>
             <div class="kpi-box bg-blue">
-                <span class="kpi-label">Horas detenido</span>
+                <span class="kpi-label">Detenido (motor apagado)</span>
                 <span class="kpi-value" id="kpi-detenido">--</span>
             </div>
             <div class="kpi-box bg-amber">
-                <span class="kpi-label">Horas ralent&iacute;</span>
+                <span class="kpi-label">Detenido (motor encendido)</span>
                 <span class="kpi-value" id="kpi-ralenti">--</span>
             </div>
             <div class="kpi-box bg-teal">
@@ -65,13 +65,16 @@
                 </div>
 
                 <div class="field">
-                    <label class="field-label">Conductor</label>
-                    <input type="text" id="filtro-conductor" class="input-ctrl" placeholder="Nombre o usuario..." style="width:170px;" oninput="filtrosCambiaron()">
+                    <label class="field-label">Placa</label>
+                    <div class="combo-placa" id="combo-placa">
+                        <input type="text" id="filtro-placa" class="input-ctrl" placeholder="Ej: ABC-123" style="width:180px;" autocomplete="off">
+                        <div class="combo-placa-lista" id="combo-placa-lista"></div>
+                    </div>
                 </div>
 
                 <div class="field">
-                    <label class="field-label">Placa</label>
-                    <input type="text" id="filtro-placa" class="input-ctrl" placeholder="Ej: ABC-123" style="width:120px;" oninput="filtrosCambiaron()">
+                    <label class="field-label">Conductor</label>
+                    <input type="text" id="filtro-conductor" class="input-ctrl" placeholder="Nombre o usuario..." style="width:170px;" oninput="filtrosCambiaron()">
                 </div>
 
                 <div class="separator"></div>
@@ -114,11 +117,11 @@
                 <tr>
                     <th onclick="ordenarPor('conductor')">Conductor / Placa</th>
                     <th onclick="ordenarPor('flota')">Flota</th>
-                    <th onclick="ordenarPor('inicio')">Inicio sesi&oacute;n</th>
-                    <th onclick="ordenarPor('fin')">Fin sesi&oacute;n</th>
+                    <th onclick="ordenarPor('inicio')">Inicio de viaje</th>
+                    <th onclick="ordenarPor('fin')">Fin de viaje</th>
                     <th onclick="ordenarPor('conduccion')">&#128994; Conducci&oacute;n</th>
-                    <th onclick="ordenarPor('detenido')">&#128309; Detenido</th>
-                    <th onclick="ordenarPor('ralenti')">&#128993; Ralent&iacute;</th>
+                    <th onclick="ordenarPor('detenido')">&#128309; Detenido (motor apagado)</th>
+                    <th onclick="ordenarPor('ralenti')">&#128993; Detenido (motor encendido)</th>
                     <th onclick="ordenarPor('distancia')">Distancia</th>
                     <th>Estado</th>
                 </tr>
@@ -140,6 +143,8 @@
     let mostrarSC = false;
     let mapaConductoresGlobal = {}; // driverId -> nombre completo
     let promesaConductores = null;
+    let dispositivosGlobal = [];    // catalogo completo de unidades (para el combobox de Placa)
+    let placaSeleccionadaId = null; // si se elige una placa especifica del combobox
 
     const GRUPOS = { LOCAL: 'b2798', PROVINCIA: 'b279A' };
     const MAX_DIAS = 7;
@@ -152,6 +157,8 @@
                 geotabApi = api;
                 configurarFechas();
                 promesaConductores = cargarConductores(); // en paralelo, no bloquea la carga inicial
+                cargarDispositivosGlobal(); // catalogo para el combobox de Placa
+                configurarComboPlaca();
                 callback();
             },
             focus: function () {},
@@ -171,6 +178,68 @@
         } catch (e) {
             console.error('Error cargando conductores', e);
         }
+    }
+
+    // Catalogo completo de unidades activas (grupos LOCAL/PROVINCIA, serial valido).
+    // Se usa como fuente del combobox de Placa y como lista base de la consulta.
+    async function cargarDispositivosGlobal() {
+        try {
+            dispositivosGlobal = await obtenerDispositivos();
+        } catch (e) {
+            console.error('Error cargando catalogo de unidades', e);
+        }
+    }
+
+    // ---------------- Combobox de Placa (busqueda API, seleccion opcional) ----------------
+
+    function configurarComboPlaca() {
+        const input = document.getElementById('filtro-placa');
+        const lista = document.getElementById('combo-placa-lista');
+
+        function abrirLista(filtroTexto) {
+            renderizarListaPlacas(filtroTexto);
+            lista.classList.add('open');
+        }
+
+        input.addEventListener('focus', function () { abrirLista(input.value); });
+        input.addEventListener('input', function () {
+            placaSeleccionadaId = null; // si edita el texto, se invalida la seleccion exacta
+            abrirLista(input.value);
+            filtrosCambiaron(); // sigue funcionando como filtro en vivo sobre lo ya cargado
+        });
+        document.addEventListener('click', function (e) {
+            if (!document.getElementById('combo-placa').contains(e.target)) {
+                lista.classList.remove('open');
+            }
+        });
+    }
+
+    function renderizarListaPlacas(filtroTexto) {
+        const lista = document.getElementById('combo-placa-lista');
+        const t = (filtroTexto || '').toUpperCase().trim();
+        const items = dispositivosGlobal.filter(function (d) {
+            return !t || d.name.toUpperCase().includes(t);
+        }).slice(0, 50);
+
+        if (items.length === 0) {
+            lista.innerHTML = '<div class="combo-placa-empty">Sin coincidencias</div>';
+            return;
+        }
+        lista.innerHTML = items.map(function (d) {
+            return '<div class="combo-placa-item" data-id="' + d.id + '">' + esc(d.name) + '</div>';
+        }).join('');
+        Array.prototype.forEach.call(lista.querySelectorAll('.combo-placa-item'), function (el) {
+            el.onclick = function () {
+                const id = el.getAttribute('data-id');
+                const disp = dispositivosGlobal.find(function (d) { return d.id === id; });
+                if (disp) {
+                    placaSeleccionadaId = id;
+                    document.getElementById('filtro-placa').value = disp.name;
+                }
+                lista.classList.remove('open');
+                filtrosCambiaron();
+            };
+        });
     }
 
     // ---------------- Fechas ----------------
@@ -269,23 +338,15 @@
             const mapaDisp = {};
             dispositivos.forEach(function(d) { mapaDisp[d.id] = d; });
 
-            // 4. Procesar y agrupar
-            // Asegura que el mapa de conductores este listo antes de agrupar
+            // 4. Procesar y agrupar (incluye la reconstruccion real con LogRecord de los
+            // tramos que cruzan el filtro, y el hueco "en curso" si aplica).
             if (promesaConductores) await promesaConductores;
             if (Object.keys(mapaConductoresGlobal).length === 0) await cargarConductores();
 
-            procesarYAgrupar(todosLosTrips, mapaDisp, fromDate, toDate);
+            actualizarProgreso(dispositivos.length, dispositivos.length, 'Ajustando tramos al filtro exacto...');
+            await procesarYAgrupar(todosLosTrips, mapaDisp, fromDate, toDate);
 
-            // 5. Si el filtro llega al presente, confirmar en vivo (DeviceStatusInfo) el
-            // estado real de las sesiones que quedaron abiertas segun Trip &#8212; ya que el
-            // ultimo viaje puede tardar en registrarse como abierto aunque la unidad
-            // siga en movimiento ahora mismo.
-            const ahoraCheck = new Date();
-            if (new Date(toDate) >= ahoraCheck) {
-                await confirmarEstadoEnVivo(mapaDisp);
-            }
-
-            // 6. Renderizar
+            // 5. Renderizar
             renderizarTabla();
             actualizarKPIs();
 
@@ -299,6 +360,12 @@
     }
 
     async function obtenerDispositivos() {
+        // Si ya se eligio una placa especifica del combobox, no hace falta pedir toda la
+        // flota de nuevo: se consulta solo esa unidad puntual (mas rapido).
+        if (placaSeleccionadaId) {
+            const yaConocido = dispositivosGlobal.find(function (d) { return d.id === placaSeleccionadaId; });
+            if (yaConocido) return [yaConocido];
+        }
         const res = await geotabApi.call("Get", {
             typeName: "Device",
             search: {
@@ -326,7 +393,7 @@
                         deviceSearch: { id: dispositivo.id },
                         fromDate: fromDate,
                         toDate: toDate,
-                        includeOverlappedTrips: false
+                        includeOverlappedTrips: true
                     }
                 });
                 return trips || [];
@@ -336,6 +403,177 @@
             }
         }
         return [];
+    }
+
+    // ---------------- Reconstrucci&#243;n real (LogRecord) para tramos que cruzan el filtro ----------------
+
+    async function obtenerLogRecordConReintento(deviceId, fromDate, toDate) {
+        for (let i = 1; i <= REINTENTOS; i++) {
+            try {
+                const logs = await geotabApi.call("Get", {
+                    typeName: "LogRecord", resultsLimit: 50000,
+                    search: { deviceSearch: { id: deviceId }, fromDate: fromDate, toDate: toDate }
+                });
+                return logs || [];
+            } catch (e) {
+                if (i === REINTENTOS) return [];
+                await sleep(400 * i);
+            }
+        }
+        return [];
+    }
+
+    async function obtenerIgnicionConReintento(deviceId, fromDate, toDate) {
+        for (let i = 1; i <= REINTENTOS; i++) {
+            try {
+                const datos = await geotabApi.call("Get", {
+                    typeName: "StatusData", resultsLimit: 5000,
+                    search: { deviceSearch: { id: deviceId }, diagnosticSearch: { id: 'DiagnosticIgnitionId' }, fromDate: fromDate, toDate: toDate }
+                });
+                return datos || [];
+            } catch (e) {
+                if (i === REINTENTOS) return [];
+                await sleep(400 * i);
+            }
+        }
+        return [];
+    }
+
+    async function obtenerCambiosConductorConReintento(deviceId, fromDate, toDate) {
+        for (let i = 1; i <= REINTENTOS; i++) {
+            try {
+                const cambios = await geotabApi.call("Get", {
+                    typeName: "DriverChange", resultsLimit: 200,
+                    search: { deviceSearch: { id: deviceId }, fromDate: fromDate, toDate: toDate }
+                });
+                return (cambios || []).sort(function (a, b) { return new Date(a.dateTime) - new Date(b.dateTime); });
+            } catch (e) {
+                if (i === REINTENTOS) return [];
+                await sleep(400 * i);
+            }
+        }
+        return [];
+    }
+
+    function haversineKm(lat1, lon1, lat2, lon2) {
+        if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return 0;
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Calcula conducci&#243;n / detenido(apagado) / detenido(encendido) / distancia REALES entre
+    // [inicio, fin] usando LogRecord (velocidad + posici&#243;n) y el diagn&#243;stico de ignici&#243;n.
+    function calcularMetricasVentana(logs, ignicion, inicio, fin) {
+        const logsVentana = logs
+            .filter(function (l) { const t = new Date(l.dateTime); return t >= inicio && t <= fin; })
+            .sort(function (a, b) { return new Date(a.dateTime) - new Date(b.dateTime); });
+
+        const ignVentana = ignicion
+            .map(function (r) { return { t: new Date(r.dateTime).getTime(), on: (r.data === true || r.data === 1 || r.data === '1' || r.data === 'true') }; })
+            .sort(function (a, b) { return a.t - b.t; });
+
+        function ignicionEnInstante(tMs) {
+            let val = null;
+            for (let i = 0; i < ignVentana.length; i++) {
+                if (ignVentana[i].t <= tMs) val = ignVentana[i].on; else break;
+            }
+            return val === null ? true : val; // sin dato previo: asume encendido (no perder ralenti real)
+        }
+
+        let conduccionMs = 0, encendidoMs = 0, apagadoMs = 0, distanciaKm = 0;
+        const UMBRAL_VELOCIDAD = 1; // km/h
+
+        for (let i = 0; i < logsVentana.length - 1; i++) {
+            const a = logsVentana[i], b = logsVentana[i + 1];
+            const ta = new Date(a.dateTime).getTime(), tb = new Date(b.dateTime).getTime();
+            const deltaMs = tb - ta;
+            if (deltaMs <= 0) continue;
+            const vel = Math.max(parseFloat(a.speed) || 0, parseFloat(b.speed) || 0);
+            if (vel > UMBRAL_VELOCIDAD) {
+                conduccionMs += deltaMs;
+                distanciaKm += haversineKm(a.latitude, a.longitude, b.latitude, b.longitude);
+            } else {
+                if (ignicionEnInstante((ta + tb) / 2)) encendidoMs += deltaMs; else apagadoMs += deltaMs;
+            }
+        }
+
+        // Doble validaci&#243;n: si el GPS no cubre toda la ventana (hueco de datos), lo no
+        // cubierto se cuenta como detenido/motor apagado por defecto (conservador), en vez
+        // de dejarlo fuera o inventarlo como movimiento.
+        const ventanaMs = fin - inicio;
+        const cubiertoMs = conduccionMs + encendidoMs + apagadoMs;
+        const sinCubrirMs = Math.max(0, ventanaMs - cubiertoMs);
+
+        return {
+            conduccion: conduccionMs / 3600000,
+            detenido: (apagadoMs + sinCubrirMs) / 3600000,
+            ralenti: encendidoMs / 3600000,
+            distancia: distanciaKm
+        };
+    }
+
+    // Divide una ventana de tiempo en sub-tramos segun los cambios de conductor (DriverChange)
+    // que hayan ocurrido dentro de ella &#8212; para no atribuir el tramo al conductor equivocado.
+    function construirSegmentosConductor(driverIdInicial, cambiosDentro, ventanaInicio, ventanaFin) {
+        const puntos = [{ t: ventanaInicio.getTime(), driverId: driverIdInicial }];
+        cambiosDentro.forEach(function (c) {
+            const t = new Date(c.dateTime).getTime();
+            if (t > ventanaInicio.getTime() && t < ventanaFin.getTime()) {
+                puntos.push({ t: t, driverId: c.driver && c.driver.id });
+            }
+        });
+        puntos.sort(function (a, b) { return a.t - b.t; });
+
+        const segmentos = [];
+        for (let i = 0; i < puntos.length; i++) {
+            const inicio = new Date(puntos[i].t);
+            const fin = (i + 1 < puntos.length) ? new Date(puntos[i + 1].t) : ventanaFin;
+            if (fin <= inicio) continue;
+            segmentos.push({ driverId: puntos[i].driverId, inicio: inicio, fin: fin });
+        }
+        return segmentos;
+    }
+
+    // Reconstruye un tramo completo: trae LogRecord + ignicion + cambios de conductor, y
+    // devuelve los sub-segmentos (uno por conductor real dentro de la ventana) con metricas reales.
+    async function reconstruirTramo(disp, driverIdConocido, ventanaInicio, ventanaFin) {
+        if (ventanaFin <= ventanaInicio) return [];
+
+        const bufferAntes = new Date(ventanaInicio.getTime() - 24 * 3600000);
+        const results = await Promise.all([
+            obtenerLogRecordConReintento(disp.id, ventanaInicio.toISOString(), ventanaFin.toISOString()),
+            obtenerIgnicionConReintento(disp.id, ventanaInicio.toISOString(), ventanaFin.toISOString()),
+            obtenerCambiosConductorConReintento(disp.id, bufferAntes.toISOString(), ventanaFin.toISOString())
+        ]);
+        const logs = results[0], ignicion = results[1], cambios = results[2];
+
+        let driverIdInicial = driverIdConocido;
+        if (!driverIdInicial) {
+            // No se conoce el conductor de antemano (hueco sin Trip): se busca el ultimo
+            // cambio de conductor ANTES del inicio de la ventana.
+            const previos = cambios.filter(function (c) { return new Date(c.dateTime) <= ventanaInicio; });
+            if (previos.length) driverIdInicial = previos[previos.length - 1].driver && previos[previos.length - 1].driver.id;
+        }
+
+        const cambiosDentro = cambios.filter(function (c) {
+            const t = new Date(c.dateTime);
+            return t > ventanaInicio && t < ventanaFin;
+        });
+
+        const segmentosConductor = construirSegmentosConductor(driverIdInicial, cambiosDentro, ventanaInicio, ventanaFin);
+
+        return segmentosConductor.map(function (seg) {
+            const m = calcularMetricasVentana(logs, ignicion, seg.inicio, seg.fin);
+            return {
+                driverId: seg.driverId, inicio: seg.inicio, fin: seg.fin,
+                conduccion: m.conduccion, detenido: m.detenido, ralenti: m.ralenti, distancia: m.distancia
+            };
+        });
     }
 
     // ---------------- Procesamiento y agrupaci&#243;n ----------------
@@ -355,7 +593,7 @@
         return dias * 24 + h + m / 60 + s / 3600;
     }
 
-    function procesarYAgrupar(trips, mapaDisp, fromDate, toDate) {
+    async function procesarYAgrupar(trips, mapaDisp, fromDate, toDate) {
         conductoresData = [];
         scData = [];
 
@@ -363,93 +601,143 @@
         const filtroDesde = new Date(fromDate);
         const filtroHasta = new Date(toDate);
         const consultaLlegaAlPresente = filtroHasta >= ahora;
+        const limiteVentana = consultaLlegaAlPresente ? ahora : filtroHasta;
         const mapaCondutor = {};
         const mapaSC = {};    // Sin conductor: agrupado por dispositivo
 
-        trips.forEach(function(t) {
-            const disp = mapaDisp[t.device && t.device.id];
-            if (!disp) return;
-
+        function agregarSesion(disp, driverId, inicio, fin, esSinFin, conduccion, detenido, ralenti, distancia) {
             const placa = disp.name || '&#8212;';
             const grupoIds = disp.grupos || [];
             const esLocal = grupoIds.includes(GRUPOS.LOCAL);
             const esProv = grupoIds.includes(GRUPOS.PROVINCIA);
             const flota = esLocal ? 'LOCAL' : (esProv ? 'PROVINCIA' : 'OTRO');
-
-            const inicio = t.start ? new Date(t.start) : null;
-            if (!inicio) return; // sin inicio no hay nada que procesar
-
-            // Con includeOverlappedTrips:false, el servidor YA recorta el viaje al
-            // rango [fromDate, toDate] con datos REALES (no estimados). Si el viaje
-            // sigue abierto (no ha terminado), t.stop viene vacio.
-            const fin = t.stop ? new Date(t.stop) : null;
-            const esSinFin = !fin && consultaLlegaAlPresente; // se confirma/corrige mas abajo con DeviceStatusInfo en vivo
-
-            const conduccion = timeSpanAHoras(t.drivingDuration);
-            const detenido = timeSpanAHoras(t.stopDuration);
-            const ralenti = timeSpanAHoras(t.idlingDuration);
-            const distancia = parseFloat(t.distance) || 0;
-
-            const driverId = t.driver && t.driver.id;
             const esSinConductor = !driverId || driverId === 'UnknownDriverId';
 
+            const sesionObj = {
+                placa: placa, flota: flota, deviceId: disp.id, inicio: inicio, fin: fin, esSinFin: esSinFin,
+                conduccion: conduccion, detenido: detenido, ralenti: ralenti, distancia: distancia, sinConductor: esSinConductor
+            };
+
             if (esSinConductor) {
-                // Agrupar por dispositivo para "sin conductor"
                 const key = disp.id;
-                if (!mapaSC[key]) {
-                    mapaSC[key] = {
-                        id: key, placa, flota,
-                        conductor: 'SIN CONDUCTOR',
-                        sesiones: []
-                    };
-                }
-                mapaSC[key].sesiones.push({
-                    placa, flota, deviceId: disp.id, inicio, fin, esSinFin,
-                    conduccion, detenido, ralenti, distancia, sinConductor: true
-                });
+                if (!mapaSC[key]) mapaSC[key] = { id: key, placa: placa, flota: flota, conductor: 'SIN CONDUCTOR', sesiones: [] };
+                mapaSC[key].sesiones.push(sesionObj);
             } else {
-                // Agrupar por conductor
                 const nombre = mapaConductoresGlobal[driverId] || driverId;
                 const key = driverId;
-                if (!mapaCondutor[key]) {
-                    mapaCondutor[key] = {
-                        id: key, nombre, flota,
-                        sesiones: []
-                    };
-                }
-                mapaCondutor[key].sesiones.push({
-                    placa, flota, deviceId: disp.id, inicio, fin, esSinFin,
-                    conduccion, detenido, ralenti, distancia, sinConductor: false
-                });
-                // Si el conductor aparece en ambas flotas, mostrar la m&#225;s frecuente
+                if (!mapaCondutor[key]) mapaCondutor[key] = { id: key, nombre: nombre, flota: flota, sesiones: [] };
+                mapaCondutor[key].sesiones.push(sesionObj);
                 if (flota !== mapaCondutor[key].flota) {
-                    var cLocal = mapaCondutor[key].sesiones.filter(function(s) { return s.flota === 'LOCAL'; }).length;
-                    var cProv = mapaCondutor[key].sesiones.filter(function(s) { return s.flota === 'PROVINCIA'; }).length;
+                    var cLocal = mapaCondutor[key].sesiones.filter(function (s) { return s.flota === 'LOCAL'; }).length;
+                    var cProv = mapaCondutor[key].sesiones.filter(function (s) { return s.flota === 'PROVINCIA'; }).length;
                     mapaCondutor[key].flota = cLocal >= cProv ? 'LOCAL' : 'PROVINCIA';
+                }
+            }
+        }
+
+        const tramosParaReconstruir = []; // {disp, driverId, inicio, fin, esHuecoFinal, cierraConTrip}
+        const ultimoFinPorDispositivo = {};
+
+        trips.forEach(function (t) {
+            const disp = mapaDisp[t.device && t.device.id];
+            if (!disp) return;
+
+            const inicioReal = t.start ? new Date(t.start) : null;
+            if (!inicioReal) return;
+            const finReal = t.stop ? new Date(t.stop) : null;
+
+            if (!ultimoFinPorDispositivo[disp.id] || (finReal && finReal > ultimoFinPorDispositivo[disp.id])) {
+                ultimoFinPorDispositivo[disp.id] = finReal || ahora;
+            }
+
+            const cruzaFrontera = inicioReal < filtroDesde || !finReal || finReal > filtroHasta;
+
+            if (!cruzaFrontera) {
+                // Viaje 100% dentro del filtro: se usan los datos nativos de Trip tal cual.
+                const conduccion = timeSpanAHoras(t.drivingDuration);
+                const ralenti = timeSpanAHoras(t.idlingDuration);
+                const detenido = Math.max(0, timeSpanAHoras(t.stopDuration) - ralenti);
+                const distancia = parseFloat(t.distance) || 0;
+                const driverId = t.driver && t.driver.id;
+                agregarSesion(disp, driverId, inicioReal, finReal, false, conduccion, detenido, ralenti, distancia);
+            } else {
+                // Cruza el borde del filtro: se recorta con datos REALES via LogRecord.
+                const ventanaInicio = inicioReal > filtroDesde ? inicioReal : filtroDesde;
+                const ventanaFin = finReal ? (finReal < limiteVentana ? finReal : limiteVentana) : limiteVentana;
+                if (ventanaFin > ventanaInicio) {
+                    tramosParaReconstruir.push({
+                        disp: disp, driverId: (t.driver && t.driver.id),
+                        inicio: ventanaInicio, fin: ventanaFin, cierraConTrip: !!finReal
+                    });
                 }
             }
         });
 
+        // Hueco final: movimiento reciente que aun no genero un registro de Trip (la unidad
+        // sigue en marcha ahora mismo, y el ultimo Trip cerrado quedo antes del corte).
+        if (consultaLlegaAlPresente) {
+            Object.values(mapaDisp).forEach(function (disp) {
+                const ultimoFin = ultimoFinPorDispositivo[disp.id] || filtroDesde;
+                if (ultimoFin < ahora - 60000) {
+                    tramosParaReconstruir.push({ disp: disp, driverId: null, inicio: ultimoFin, fin: ahora, esHuecoFinal: true });
+                }
+            });
+        }
+
+        // Reconstruccion por bloques (no todas a la vez) para no saturar la API.
+        const BLOQUE_RECONSTRUCCION = 8;
+        for (let i = 0; i < tramosParaReconstruir.length; i += BLOQUE_RECONSTRUCCION) {
+            const lote = tramosParaReconstruir.slice(i, i + BLOQUE_RECONSTRUCCION);
+            const promesas = lote.map(function (tr) {
+                return reconstruirTramo(tr.disp, tr.driverId, tr.inicio, tr.fin).catch(function () { return []; });
+            });
+            const resultadosLote = await Promise.all(promesas);
+
+            resultadosLote.forEach(function (segmentos, idx) {
+                const tr = lote[idx];
+                segmentos.forEach(function (seg) {
+                    // --- Segunda validacion, antes de mostrar en tabla ---
+                    let ini = seg.inicio < filtroDesde ? filtroDesde : seg.inicio;
+                    let fin = seg.fin > limiteVentana ? limiteVentana : seg.fin;
+                    if (fin <= ini) return;
+
+                    const horasVentana = (fin - ini) / 3600000;
+                    const sumaHoras = seg.conduccion + seg.detenido + seg.ralenti;
+                    let conduccion = seg.conduccion, detenido = seg.detenido, ralenti = seg.ralenti;
+                    if (sumaHoras > horasVentana + 0.01 && sumaHoras > 0) {
+                        const factor = horasVentana / sumaHoras;
+                        conduccion *= factor; detenido *= factor; ralenti *= factor;
+                    }
+
+                    const esUltimoAbierto = tr.esHuecoFinal || !tr.cierraConTrip;
+                    const esFinReal = esUltimoAbierto && consultaLlegaAlPresente && fin >= ahora - 60000;
+                    agregarSesion(tr.disp, seg.driverId, ini, esFinReal ? null : fin, esFinReal, conduccion, detenido, ralenti, seg.distancia);
+                });
+            });
+
+            if (i + BLOQUE_RECONSTRUCCION < tramosParaReconstruir.length) await sleep(PAUSA_MS);
+        }
+
         // Convertir a arrays y calcular totales
-        conductoresData = Object.values(mapaCondutor).map(function(c) {
-            c.sesiones.sort(function(a, b) { return (a.inicio || 0) - (b.inicio || 0); });
-            c.totalConduccion = c.sesiones.reduce(function(s, x) { return s + x.conduccion; }, 0);
-            c.totalDetenido = c.sesiones.reduce(function(s, x) { return s + x.detenido; }, 0);
-            c.totalRalenti = c.sesiones.reduce(function(s, x) { return s + x.ralenti; }, 0);
-            c.totalDistancia = c.sesiones.reduce(function(s, x) { return s + x.distancia; }, 0);
-            c.estaActivo = consultaLlegaAlPresente && c.sesiones.some(function(s) { return s.esSinFin; });
-            c.placas = c.sesiones.map(function(s) { return s.placa; }).filter(function(v, i, a) { return a.indexOf(v) === i; });
+        conductoresData = Object.values(mapaCondutor).map(function (c) {
+            c.sesiones.sort(function (a, b) { return (a.inicio || 0) - (b.inicio || 0); });
+            c.totalConduccion = c.sesiones.reduce(function (s, x) { return s + x.conduccion; }, 0);
+            c.totalDetenido = c.sesiones.reduce(function (s, x) { return s + x.detenido; }, 0);
+            c.totalRalenti = c.sesiones.reduce(function (s, x) { return s + x.ralenti; }, 0);
+            c.totalDistancia = c.sesiones.reduce(function (s, x) { return s + x.distancia; }, 0);
+            c.estaActivo = consultaLlegaAlPresente && c.sesiones.some(function (s) { return s.esSinFin; });
+            c.placas = c.sesiones.map(function (s) { return s.placa; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
             c.abierto = false;
             return c;
         });
 
-        scData = Object.values(mapaSC).map(function(c) {
-            c.sesiones.sort(function(a, b) { return (a.inicio || 0) - (b.inicio || 0); });
-            c.totalConduccion = c.sesiones.reduce(function(s, x) { return s + x.conduccion; }, 0);
-            c.totalDetenido = c.sesiones.reduce(function(s, x) { return s + x.detenido; }, 0);
-            c.totalRalenti = c.sesiones.reduce(function(s, x) { return s + x.ralenti; }, 0);
-            c.totalDistancia = c.sesiones.reduce(function(s, x) { return s + x.distancia; }, 0);
-            c.estaActivo = consultaLlegaAlPresente && c.sesiones.some(function(s) { return s.esSinFin; });
+        scData = Object.values(mapaSC).map(function (c) {
+            c.sesiones.sort(function (a, b) { return (a.inicio || 0) - (b.inicio || 0); });
+            c.totalConduccion = c.sesiones.reduce(function (s, x) { return s + x.conduccion; }, 0);
+            c.totalDetenido = c.sesiones.reduce(function (s, x) { return s + x.detenido; }, 0);
+            c.totalRalenti = c.sesiones.reduce(function (s, x) { return s + x.ralenti; }, 0);
+            c.totalDistancia = c.sesiones.reduce(function (s, x) { return s + x.distancia; }, 0);
+            c.estaActivo = consultaLlegaAlPresente && c.sesiones.some(function (s) { return s.esSinFin; });
             c.abierto = false;
             return c;
         });
@@ -601,17 +889,30 @@
 
         const estadoBadge = c.estaActivo
             ? (esSC ? '<span class="badge badge-sc-mov">En movimiento sin conductor</span>' : '<span class="badge badge-activo">&#128994; VIAJE EN CURSO</span>')
-            : '<span class="badge badge-cerrado">VIAJE CULMINADO</span>' +
-              (c._diagVivo ? '<div style="font-size:9px;color:#c2c9d3;margin-top:2px;">' + c._diagVivo + '</div>' : '');
+            : '<span class="badge badge-cerrado">VIAJE CULMINADO</span>';
 
         const nsesiones = c.sesiones.length;
         const placasTexto = esSC ? c.placa : (c.placas || []).join(', ');
 
+        // Formato "PLACA &#8212; Conductor": si el grupo tiene una sola placa se fusiona en
+        // el titulo principal; si maneja varias placas, se muestra el nombre y las placas debajo.
+        let tituloPrincipal, metaTexto;
+        if (esSC) {
+            tituloPrincipal = esc(c.placa) + ' &#8212; SIN CONDUCTOR';
+            metaTexto = nsesiones + ' viaje' + (nsesiones !== 1 ? 's' : '');
+        } else if ((c.placas || []).length === 1) {
+            tituloPrincipal = esc(c.placas[0]) + ' &#8212; ' + esc(c.nombre);
+            metaTexto = nsesiones + ' viaje' + (nsesiones !== 1 ? 's' : '');
+        } else {
+            tituloPrincipal = esc(c.nombre);
+            metaTexto = esc(placasTexto) + ' &#183; ' + nsesiones + ' viaje' + (nsesiones !== 1 ? 's' : '');
+        }
+
         tr.innerHTML =
             '<td>' +
                 '<span class="expand-icon ' + (c.abierto ? 'abierto' : '') + '">&#9654;</span>' +
-                '<span class="conductor-nombre">' + (esSC ? '&#9888; SIN CONDUCTOR' : esc(c.nombre)) + '</span>' +
-                '<div class="conductor-meta">' + esc(placasTexto) + ' &#183; ' + nsesiones + ' sesi&#243;n' + (nsesiones !== 1 ? 'es' : '') + '</div>' +
+                '<span class="conductor-nombre">' + (esSC ? '&#9888; ' : '') + tituloPrincipal + '</span>' +
+                '<div class="conductor-meta">' + metaTexto + '</div>' +
             '</td>' +
             '<td>' + badgeFlota + '</td>' +
             '<td colspan="2" style="color:#8892a0; font-size:11px; font-style:italic;">Ver detalle &#9662;</td>' +
