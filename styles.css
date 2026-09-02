@@ -44,7 +44,7 @@ body {
 }
 
 .logo-header {
-    height: 105px;
+    height: 150px;
     width: auto;
     object-fit: contain;
     flex: 0 0 auto;
@@ -314,6 +314,6 @@ body {
 }
 
 @media (max-width: 560px) {
-    .logo-header { height: 60px; }
+    .logo-header { height: 80px; }
     .header-brand { gap: 10px; }
 }
