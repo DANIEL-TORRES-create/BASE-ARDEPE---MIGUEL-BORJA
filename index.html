@@ -6,7 +6,8 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
-    <link rel="stylesheet" href="styles.css?v=5">
+    <link rel="stylesheet" href="styles.css?v=6">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 <div class="card">
@@ -15,7 +16,7 @@
         <div class="header">
             <div>
                 <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v6)</span></p>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v7)</span></p>
             </div>
             <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
@@ -27,7 +28,7 @@
                 <span class="kpi-value" id="kpi-conductores">--</span>
             </div>
             <div class="kpi-box bg-grey">
-                <span class="kpi-label">Total sesiones</span>
+                <span class="kpi-label">Unidades con movimiento</span>
                 <span class="kpi-value" id="kpi-sesiones">--</span>
             </div>
             <div class="kpi-box bg-green">
@@ -106,6 +107,14 @@
                     <input type="checkbox" id="toggle-sc" onchange="toggleSinConductor()">
                     Mostrar "Sin conductor"
                 </label>
+
+                <div class="combo-exportar" id="combo-exportar">
+                    <button class="btn btn-ghost" onclick="event.stopPropagation(); toggleMenuExportar()">&#128190; Exportar Excel</button>
+                    <div class="combo-exportar-lista" id="combo-exportar-lista">
+                        <div class="combo-exportar-item" onclick="exportarExcel('resumen')">Resumen (1 fila por conductor/placa)</div>
+                        <div class="combo-exportar-item" onclick="exportarExcel('detalle')">Detalle (1 fila por tramo)</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div><!-- /sticky-header -->
@@ -117,8 +126,8 @@
                 <tr>
                     <th onclick="ordenarPor('conductor')">Conductor / Placa</th>
                     <th onclick="ordenarPor('flota')">Flota</th>
-                    <th onclick="ordenarPor('inicio')">Inicio de viaje</th>
-                    <th onclick="ordenarPor('fin')">Fin de viaje</th>
+                    <th onclick="ordenarPor('inicio')">Inicio de tramo</th>
+                    <th onclick="ordenarPor('fin')">Fin de tramo</th>
                     <th onclick="ordenarPor('conduccion')">&#128994; Conducci&oacute;n</th>
                     <th onclick="ordenarPor('detenido')">&#128309; Detenido (motor apagado)</th>
                     <th onclick="ordenarPor('ralenti')">&#128993; Detenido (motor encendido)</th>
@@ -322,7 +331,7 @@
             }
 
             // 2. Traer trips por bloques de dispositivos
-            actualizarProgreso(0, dispositivos.length, 'Consultando viajes...');
+            actualizarProgreso(0, dispositivos.length, 'Consultando tramos...');
             const BLOQUE = 10;
             let todosLosTrips = [];
             for (let i = 0; i < dispositivos.length; i += BLOQUE) {
@@ -855,6 +864,74 @@
         actualizarKPIs();
     }
 
+    // ---------------- Exportar a Excel ----------------
+
+    function toggleMenuExportar() {
+        const lista = document.getElementById('combo-exportar-lista');
+        lista.classList.toggle('open');
+    }
+
+    document.addEventListener('click', function (e) {
+        const combo = document.getElementById('combo-exportar');
+        if (combo && !combo.contains(e.target)) {
+            document.getElementById('combo-exportar-lista').classList.remove('open');
+        }
+    });
+
+    function exportarExcel(modo) {
+        document.getElementById('combo-exportar-lista').classList.remove('open');
+
+        const datos = filtrarDatos(conductoresData).concat(mostrarSC ? filtrarDatos(scData) : []);
+        if (datos.length === 0) { alert('No hay datos para exportar. Consulta primero.'); return; }
+
+        const filas = [];
+
+        if (modo === 'resumen') {
+            // Una fila por Conductor/Placa: Inicio = tramo mas antiguo, Fin = tramo mas
+            // reciente ("ultima fecha"), y los totales de Conduccion/Detenido/Distancia.
+            datos.forEach(function (c) {
+                if (!c.sesiones.length) return;
+                const placaTexto = c.conductor === 'SIN CONDUCTOR' ? c.placa : (c.placas || []).join(', ');
+                const primerTramo = c.sesiones[0];
+                const ultimoTramo = c.sesiones[c.sesiones.length - 1];
+                filas.push({
+                    'Conductor': c.nombre || c.conductor,
+                    'Placa': placaTexto,
+                    'Inicio de tramo': primerTramo.inicio ? formatFechaHora(primerTramo.inicio) : '',
+                    'Fin de tramo': ultimoTramo.fin ? formatFechaHora(ultimoTramo.fin) : 'EN CURSO',
+                    'Conduccion (h)': Number(c.totalConduccion.toFixed(2)),
+                    'Detenido - motor apagado (h)': Number(c.totalDetenido.toFixed(2)),
+                    'Detenido - motor encendido (h)': Number(c.totalRalenti.toFixed(2)),
+                    'Distancia (km)': Number(c.totalDistancia.toFixed(1))
+                });
+            });
+        } else {
+            // Una fila por CADA tramo individual, sin agrupar.
+            datos.forEach(function (c) {
+                c.sesiones.forEach(function (s) {
+                    filas.push({
+                        'Conductor': c.nombre || c.conductor,
+                        'Placa': s.placa,
+                        'Inicio de tramo': s.inicio ? formatFechaHora(s.inicio) : '',
+                        'Fin de tramo': s.fin ? formatFechaHora(s.fin) : 'EN CURSO',
+                        'Conduccion (h)': Number(s.conduccion.toFixed(2)),
+                        'Detenido - motor apagado (h)': Number(s.detenido.toFixed(2)),
+                        'Detenido - motor encendido (h)': Number(s.ralenti.toFixed(2)),
+                        'Distancia (km)': Number(s.distancia.toFixed(1))
+                    });
+                });
+            });
+        }
+
+        const ws = XLSX.utils.json_to_sheet(filas);
+        ws['!cols'] = [{ wch: 26 }, { wch: 22 }, { wch: 20 }, { wch: 20 }, { wch: 14 }, { wch: 22 }, { wch: 24 }, { wch: 14 }];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, modo === 'resumen' ? 'Resumen' : 'Detalle');
+
+        const fechaArchivo = new Date().toISOString().slice(0, 10);
+        XLSX.writeFile(wb, 'Horas_Conduccion_ARDEPE_' + modo + '_' + fechaArchivo + '.xlsx');
+    }
+
     // ---------------- Renderizado ----------------
 
     function renderizarTabla() {
@@ -899,13 +976,13 @@
         let tituloPrincipal, metaTexto;
         if (esSC) {
             tituloPrincipal = esc(c.placa) + ' &#8212; SIN CONDUCTOR';
-            metaTexto = nsesiones + ' viaje' + (nsesiones !== 1 ? 's' : '');
+            metaTexto = nsesiones + ' tramo' + (nsesiones !== 1 ? 's' : '');
         } else if ((c.placas || []).length === 1) {
             tituloPrincipal = esc(c.placas[0]) + ' &#8212; ' + esc(c.nombre);
-            metaTexto = nsesiones + ' viaje' + (nsesiones !== 1 ? 's' : '');
+            metaTexto = nsesiones + ' tramo' + (nsesiones !== 1 ? 's' : '');
         } else {
             tituloPrincipal = esc(c.nombre);
-            metaTexto = esc(placasTexto) + ' &#183; ' + nsesiones + ' viaje' + (nsesiones !== 1 ? 's' : '');
+            metaTexto = esc(placasTexto) + ' &#183; ' + nsesiones + ' tramo' + (nsesiones !== 1 ? 's' : '');
         }
 
         tr.innerHTML =
@@ -967,14 +1044,21 @@
         const lista = filtrarDatos(conductoresData);
         const listaSC = filtrarDatos(scData);
 
-        const totalSesiones = lista.reduce(function(s, c) { return s + c.sesiones.length; }, 0);
+        // "Unidades con movimiento": cuenta placas UNICAS que tuvieron al menos un tramo
+        // (no la suma de tramos de todos los conductores).
+        const placasUnicas = {};
+        lista.forEach(function(c) {
+            (c.placas || []).forEach(function(p) { placasUnicas[p] = true; });
+        });
+        const totalUnidadesConMovimiento = Object.keys(placasUnicas).length;
+
         const totalConduccion = lista.reduce(function(s, c) { return s + c.totalConduccion; }, 0);
         const totalDetenido = lista.reduce(function(s, c) { return s + c.totalDetenido; }, 0);
         const totalRalenti = lista.reduce(function(s, c) { return s + c.totalRalenti; }, 0);
         const totalDistancia = lista.reduce(function(s, c) { return s + c.totalDistancia; }, 0);
 
         document.getElementById('kpi-conductores').innerText = lista.length;
-        document.getElementById('kpi-sesiones').innerText = totalSesiones;
+        document.getElementById('kpi-sesiones').innerText = totalUnidadesConMovimiento;
         document.getElementById('kpi-conduccion').innerText = formatHoras(totalConduccion);
         document.getElementById('kpi-detenido').innerText = formatHoras(totalDetenido);
         document.getElementById('kpi-ralenti').innerText = formatHoras(totalRalenti);
