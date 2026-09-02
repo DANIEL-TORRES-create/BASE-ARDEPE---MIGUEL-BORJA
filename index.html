@@ -16,7 +16,7 @@
         <div class="header">
             <div>
                 <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v10)</span></p>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v12)</span></p>
             </div>
             <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
@@ -28,7 +28,7 @@
                 <span class="kpi-value" id="kpi-conductores">--</span>
             </div>
             <div class="kpi-box bg-grey">
-                <span class="kpi-label">TOTAL VIAJES</span>
+                <span class="kpi-label">Total Viajes</span>
                 <span class="kpi-value" id="kpi-sesiones">--</span>
             </div>
             <div class="kpi-box bg-green">
@@ -682,15 +682,40 @@
             }
         });
 
-        // Hueco final: movimiento reciente que aun no genero un registro de Trip (la unidad
-        // sigue en marcha ahora mismo, y el ultimo Trip cerrado quedo antes del corte).
+        // Hueco final: SOLO si la unidad realmente sigue en movimiento ahora mismo (se
+        // confirma con una consulta liviana de DeviceStatusInfo antes de reconstruir con
+        // LogRecord, que es mas cara). Si esta detenida/parqueada, NO se genera ninguna
+        // fila sintetica: el ultimo Trip cerrado ya cuenta toda la historia correctamente.
         if (consultaLlegaAlPresente) {
+            const candidatosHueco = [];
             Object.values(mapaDisp).forEach(function (disp) {
                 const ultimoFin = ultimoFinPorDispositivo[disp.id] || filtroDesde;
-                if (ultimoFin < ahora - 60000) {
-                    tramosParaReconstruir.push({ disp: disp, driverId: null, inicio: ultimoFin, fin: ahora, esHuecoFinal: true });
-                }
+                if (ultimoFin < ahora - 60000) candidatosHueco.push({ disp: disp, ultimoFin: ultimoFin });
             });
+
+            if (candidatosHueco.length > 0) {
+                const mapaEstadoVivo = {};
+                const BLOQUE_ESTADO = 15;
+                for (let i = 0; i < candidatosHueco.length; i += BLOQUE_ESTADO) {
+                    const lote = candidatosHueco.slice(i, i + BLOQUE_ESTADO);
+                    const promesas = lote.map(function (cand) {
+                        return geotabApi.call("Get", { typeName: "DeviceStatusInfo", search: { deviceSearch: { id: cand.disp.id } } })
+                            .then(function (res) { return { id: cand.disp.id, info: res && res[0] }; })
+                            .catch(function () { return { id: cand.disp.id, info: null }; });
+                    });
+                    const resultados = await Promise.all(promesas);
+                    resultados.forEach(function (r) { mapaEstadoVivo[r.id] = r.info; });
+                    if (i + BLOQUE_ESTADO < candidatosHueco.length) await sleep(200);
+                }
+
+                candidatosHueco.forEach(function (cand) {
+                    const info = mapaEstadoVivo[cand.disp.id];
+                    // Solo reconstruir si DeviceStatusInfo confirma movimiento real ahora mismo.
+                    if (info && info.isDriving) {
+                        tramosParaReconstruir.push({ disp: cand.disp, driverId: null, inicio: cand.ultimoFin, fin: ahora, esHuecoFinal: true });
+                    }
+                });
+            }
         }
 
         // Reconstruccion por bloques (no todas a la vez) para no saturar la API.
@@ -1140,7 +1165,7 @@
         const lista = filtrarDatos(conductoresData);
         const listaSC = filtrarDatos(scData);
 
-        // "TOTAL VIAJES": cuenta placas UNICAS que tuvieron al menos un tramo
+        // "Unidades con movimiento": cuenta placas UNICAS que tuvieron al menos un tramo
         // (no la suma de tramos de todos los conductores).
         const placasUnicas = {};
         lista.forEach(function(c) {
