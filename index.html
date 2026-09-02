@@ -16,7 +16,7 @@
         <div class="header">
             <div>
                 <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v7)</span></p>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v8)</span></p>
             </div>
             <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
@@ -111,8 +111,8 @@
                 <div class="combo-exportar" id="combo-exportar">
                     <button class="btn btn-ghost" onclick="event.stopPropagation(); toggleMenuExportar()">&#128190; Exportar Excel</button>
                     <div class="combo-exportar-lista" id="combo-exportar-lista">
-                        <div class="combo-exportar-item" onclick="exportarExcel('resumen')">Resumen (1 fila por conductor/placa)</div>
-                        <div class="combo-exportar-item" onclick="exportarExcel('detalle')">Detalle (1 fila por tramo)</div>
+                        <div class="combo-exportar-item" onclick="exportarExcel('resumen')">Resumen</div>
+                        <div class="combo-exportar-item" onclick="exportarExcel('detalle')">Detalle</div>
                     </div>
                 </div>
             </div>
@@ -899,9 +899,9 @@
                     'Placa': placaTexto,
                     'Inicio de tramo': primerTramo.inicio ? formatFechaHora(primerTramo.inicio) : '',
                     'Fin de tramo': ultimoTramo.fin ? formatFechaHora(ultimoTramo.fin) : 'EN CURSO',
-                    'Conduccion (h)': Number(c.totalConduccion.toFixed(2)),
-                    'Detenido - motor apagado (h)': Number(c.totalDetenido.toFixed(2)),
-                    'Detenido - motor encendido (h)': Number(c.totalRalenti.toFixed(2)),
+                    'Conduccion': formatHoras(c.totalConduccion),
+                    'Detenido - motor apagado': formatHoras(c.totalDetenido),
+                    'Detenido - motor encendido': formatHoras(c.totalRalenti),
                     'Distancia (km)': Number(c.totalDistancia.toFixed(1))
                 });
             });
@@ -914,9 +914,9 @@
                         'Placa': s.placa,
                         'Inicio de tramo': s.inicio ? formatFechaHora(s.inicio) : '',
                         'Fin de tramo': s.fin ? formatFechaHora(s.fin) : 'EN CURSO',
-                        'Conduccion (h)': Number(s.conduccion.toFixed(2)),
-                        'Detenido - motor apagado (h)': Number(s.detenido.toFixed(2)),
-                        'Detenido - motor encendido (h)': Number(s.ralenti.toFixed(2)),
+                        'Conduccion': formatHoras(s.conduccion),
+                        'Detenido - motor apagado': formatHoras(s.detenido),
+                        'Detenido - motor encendido': formatHoras(s.ralenti),
                         'Distancia (km)': Number(s.distancia.toFixed(1))
                     });
                 });
@@ -924,7 +924,14 @@
         }
 
         const ws = XLSX.utils.json_to_sheet(filas);
-        ws['!cols'] = [{ wch: 26 }, { wch: 22 }, { wch: 20 }, { wch: 20 }, { wch: 14 }, { wch: 22 }, { wch: 24 }, { wch: 14 }];
+        ws['!cols'] = [{ wch: 26 }, { wch: 22 }, { wch: 20 }, { wch: 20 }, { wch: 12 }, { wch: 22 }, { wch: 24 }, { wch: 14 }];
+        // Negrita en el encabezado (soporte limitado en la version gratuita de SheetJS,
+        // pero se intenta igual; si el visor no lo respeta, no rompe el archivo).
+        const columnas = Object.keys(filas[0] || {});
+        columnas.forEach(function (_, i) {
+            const celda = XLSX.utils.encode_cell({ r: 0, c: i });
+            if (ws[celda]) ws[celda].s = { font: { bold: true }, fill: { fgColor: { rgb: '002D72' } } };
+        });
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, modo === 'resumen' ? 'Resumen' : 'Detalle');
 
