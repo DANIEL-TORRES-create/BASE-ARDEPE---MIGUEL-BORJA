@@ -7,7 +7,7 @@
     <meta http-equiv="Expires" content="0">
     <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
     <link rel="stylesheet" href="styles.css?v=6">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
 <div class="card">
@@ -16,7 +16,7 @@
         <div class="header">
             <div>
                 <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v8)</span></p>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v9)</span></p>
             </div>
             <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
@@ -884,6 +884,7 @@
         const datos = filtrarDatos(conductoresData).concat(mostrarSC ? filtrarDatos(scData) : []);
         if (datos.length === 0) { alert('No hay datos para exportar. Consulta primero.'); return; }
 
+        // Filas: [conductor, placa, inicioTxt, finTxt, conduccionFraccionDia, detApagadoFraccionDia, detEncendidoFraccionDia, distanciaKm]
         const filas = [];
 
         if (modo === 'resumen') {
@@ -894,49 +895,127 @@
                 const placaTexto = c.conductor === 'SIN CONDUCTOR' ? c.placa : (c.placas || []).join(', ');
                 const primerTramo = c.sesiones[0];
                 const ultimoTramo = c.sesiones[c.sesiones.length - 1];
-                filas.push({
-                    'Conductor': c.nombre || c.conductor,
-                    'Placa': placaTexto,
-                    'Inicio de tramo': primerTramo.inicio ? formatFechaHora(primerTramo.inicio) : '',
-                    'Fin de tramo': ultimoTramo.fin ? formatFechaHora(ultimoTramo.fin) : 'EN CURSO',
-                    'Conduccion': formatHoras(c.totalConduccion),
-                    'Detenido - motor apagado': formatHoras(c.totalDetenido),
-                    'Detenido - motor encendido': formatHoras(c.totalRalenti),
-                    'Distancia (km)': Number(c.totalDistancia.toFixed(1))
-                });
+                filas.push([
+                    c.nombre || c.conductor,
+                    placaTexto,
+                    primerTramo.inicio ? formatFechaHora(primerTramo.inicio) : '',
+                    ultimoTramo.fin ? formatFechaHora(ultimoTramo.fin) : 'EN CURSO',
+                    c.totalConduccion / 24,
+                    c.totalDetenido / 24,
+                    c.totalRalenti / 24,
+                    Number(c.totalDistancia.toFixed(1))
+                ]);
             });
         } else {
             // Una fila por CADA tramo individual, sin agrupar.
             datos.forEach(function (c) {
                 c.sesiones.forEach(function (s) {
-                    filas.push({
-                        'Conductor': c.nombre || c.conductor,
-                        'Placa': s.placa,
-                        'Inicio de tramo': s.inicio ? formatFechaHora(s.inicio) : '',
-                        'Fin de tramo': s.fin ? formatFechaHora(s.fin) : 'EN CURSO',
-                        'Conduccion': formatHoras(s.conduccion),
-                        'Detenido - motor apagado': formatHoras(s.detenido),
-                        'Detenido - motor encendido': formatHoras(s.ralenti),
-                        'Distancia (km)': Number(s.distancia.toFixed(1))
-                    });
+                    filas.push([
+                        c.nombre || c.conductor,
+                        s.placa,
+                        s.inicio ? formatFechaHora(s.inicio) : '',
+                        s.fin ? formatFechaHora(s.fin) : 'EN CURSO',
+                        s.conduccion / 24,
+                        s.detenido / 24,
+                        s.ralenti / 24,
+                        Number(s.distancia.toFixed(1))
+                    ]);
                 });
             });
         }
 
-        const ws = XLSX.utils.json_to_sheet(filas);
-        ws['!cols'] = [{ wch: 26 }, { wch: 22 }, { wch: 20 }, { wch: 20 }, { wch: 12 }, { wch: 22 }, { wch: 24 }, { wch: 14 }];
-        // Negrita en el encabezado (soporte limitado en la version gratuita de SheetJS,
-        // pero se intenta igual; si el visor no lo respeta, no rompe el archivo).
-        const columnas = Object.keys(filas[0] || {});
-        columnas.forEach(function (_, i) {
-            const celda = XLSX.utils.encode_cell({ r: 0, c: i });
-            if (ws[celda]) ws[celda].s = { font: { bold: true }, fill: { fgColor: { rgb: '002D72' } } };
+        // --- Construir el libro con ExcelJS (soporta estilos reales, a diferencia de la
+        // version gratuita de SheetJS) ---
+        const wb = new ExcelJS.Workbook();
+        wb.creator = 'ARDEPE';
+        const nombreHoja = modo === 'resumen' ? 'Resumen' : 'Detalle';
+        const ws = wb.addWorksheet(nombreHoja, { views: [{ state: 'frozen', ySplit: 1 }] });
+
+        ws.columns = [
+            { header: 'Conductor', key: 'conductor', width: 28 },
+            { header: 'Placa', key: 'placa', width: 22 },
+            { header: 'Inicio de tramo', key: 'inicio', width: 20 },
+            { header: 'Fin de tramo', key: 'fin', width: 20 },
+            { header: 'Conducci\u00f3n', key: 'conduccion', width: 13, style: { numFmt: '[h]:mm' } },
+            { header: 'Detenido - motor apagado', key: 'detApagado', width: 22, style: { numFmt: '[h]:mm' } },
+            { header: 'Detenido - motor encendido', key: 'detEncendido', width: 24, style: { numFmt: '[h]:mm' } },
+            { header: 'Distancia (km)', key: 'distancia', width: 14 }
+        ];
+
+        // Encabezado: negrita, blanco, fondo azul institucional
+        const headerRow = ws.getRow(1);
+        headerRow.eachCell(function (cell) {
+            cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF002D72' } };
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.border = {
+                top: { style: 'thin', color: { argb: 'FF001A44' } },
+                bottom: { style: 'thin', color: { argb: 'FF001A44' } },
+                left: { style: 'thin', color: { argb: 'FF001A44' } },
+                right: { style: 'thin', color: { argb: 'FF001A44' } }
+            };
         });
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, modo === 'resumen' ? 'Resumen' : 'Detalle');
+        headerRow.height = 20;
+
+        // Filas de datos: bordes finos + fondo alterno
+        filas.forEach(function (fila, ri) {
+            const row = ws.addRow(fila);
+            const esAlterna = (ri % 2 === 0);
+            row.eachCell(function (cell) {
+                cell.font = { size: 10 };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: esAlterna ? 'FFEDF3FB' : 'FFFFFFFF' } };
+                cell.border = {
+                    top: { style: 'hair', color: { argb: 'FFDEE2E6' } },
+                    bottom: { style: 'hair', color: { argb: 'FFDEE2E6' } },
+                    left: { style: 'hair', color: { argb: 'FFDEE2E6' } },
+                    right: { style: 'hair', color: { argb: 'FFDEE2E6' } }
+                };
+                cell.alignment = { vertical: 'middle' };
+            });
+            // Centrar columnas de horas y distancia
+            [5, 6, 7, 8].forEach(function (col) {
+                row.getCell(col).alignment = { horizontal: 'center', vertical: 'middle' };
+            });
+            row.height = 16;
+        });
+
+        // Fila de totales (suma real via formula de Excel, no un numero fijo)
+        if (filas.length > 0) {
+            const primeraFilaDatos = 2;
+            const ultimaFilaDatos = 1 + filas.length;
+            const totalRow = ws.addRow(['', '', '', 'TOTAL:',
+                { formula: 'SUM(E' + primeraFilaDatos + ':E' + ultimaFilaDatos + ')' },
+                { formula: 'SUM(F' + primeraFilaDatos + ':F' + ultimaFilaDatos + ')' },
+                { formula: 'SUM(G' + primeraFilaDatos + ':G' + ultimaFilaDatos + ')' },
+                { formula: 'SUM(H' + primeraFilaDatos + ':H' + ultimaFilaDatos + ')' }
+            ]);
+            totalRow.getCell(4).font = { bold: true, size: 10 };
+            totalRow.getCell(4).alignment = { horizontal: 'right', vertical: 'middle' };
+            [5, 6, 7].forEach(function (col) {
+                const cell = totalRow.getCell(col);
+                cell.numFmt = '[h]:mm';
+                cell.font = { bold: true, size: 11, color: { argb: 'FF002D72' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6EEF9' } };
+                cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            });
+            totalRow.getCell(8).font = { bold: true, size: 11, color: { argb: 'FF002D72' } };
+            totalRow.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6EEF9' } };
+            totalRow.getCell(8).alignment = { horizontal: 'center', vertical: 'middle' };
+            totalRow.height = 18;
+        }
 
         const fechaArchivo = new Date().toISOString().slice(0, 10);
-        XLSX.writeFile(wb, 'Horas_Conduccion_ARDEPE_' + modo + '_' + fechaArchivo + '.xlsx');
+        wb.xlsx.writeBuffer().then(function (buffer) {
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'Horas_Conduccion_ARDEPE_' + modo + '_' + fechaArchivo + '.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
     }
 
     // ---------------- Renderizado ----------------
