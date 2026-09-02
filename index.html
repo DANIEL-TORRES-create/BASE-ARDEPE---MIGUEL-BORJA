@@ -16,7 +16,7 @@
         <div class="header">
             <div>
                 <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v13)</span></p>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v17)</span></p>
             </div>
             <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
@@ -964,41 +964,64 @@
         const wb = new ExcelJS.Workbook();
         wb.creator = 'ARDEPE';
         const nombreHoja = modo === 'resumen' ? 'Resumen' : 'Detalle';
-        const ws = wb.addWorksheet(nombreHoja, { views: [{ state: 'frozen', ySplit: 5 }] });
+        const ws = wb.addWorksheet(nombreHoja, { views: [{ state: 'frozen', ySplit: 6 }] });
 
-        // Anchos de columna (sin usar ws.columns para no generar un encabezado automatico
-        // en la fila 1; el encabezado real va mas abajo, despues del bloque de filtros).
+        // Anchos de columna
         const anchos = [28, 22, 20, 20, 13, 22, 24, 14];
         anchos.forEach(function (w, i) { ws.getColumn(i + 1).width = w; });
 
-        // --- Bloque de filtros aplicados (contexto de la consulta) ---
+        // --- Bloque de filtros aplicados (contexto de la consulta), con formato de "caja" ---
         const fFlota = document.getElementById('filtro-flota').value;
         const fConductorTxt = document.getElementById('filtro-conductor').value.trim();
         const fPlacaTxt = document.getElementById('filtro-placa').value.trim();
         const rangoTxt = document.getElementById('fecha-inicio').value + ' ' + document.getElementById('hora-inicio').value +
             '  a  ' + document.getElementById('fecha-fin').value + ' ' + document.getElementById('hora-fin').value;
 
+        function estiloBoxInfo(cell, esTitulo) {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEDF3FB' } };
+            cell.border = {
+                left: { style: 'thin', color: { argb: 'FFB9CDE6' } },
+                right: { style: 'thin', color: { argb: 'FFB9CDE6' } },
+                top: { style: esTitulo ? 'medium' : 'hair', color: { argb: esTitulo ? 'FF002D72' : 'FFB9CDE6' } },
+                bottom: { style: 'hair', color: { argb: 'FFB9CDE6' } }
+            };
+        }
+
         const tituloRow = ws.addRow(['ARDEPE - Control de Horas de Conducci\u00f3n (' + nombreHoja + ')']);
         ws.mergeCells('A1:H1');
+        estiloBoxInfo(tituloRow.getCell(1), true);
         tituloRow.getCell(1).font = { bold: true, size: 13, color: { argb: 'FF002D72' } };
-        tituloRow.height = 22;
+        tituloRow.getCell(1).alignment = { vertical: 'middle', indent: 1 };
+        tituloRow.height = 24;
 
         const filtrosRow = ws.addRow(['Filtros: Flota = ' + fFlota +
             '  |  Placa = ' + (fPlacaTxt || 'Todas') +
             '  |  Conductor = ' + (fConductorTxt || 'Todos') +
             (mostrarSC ? '  |  Incluye "Sin conductor"' : '')]);
         ws.mergeCells('A2:H2');
-        filtrosRow.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF556070' } };
+        estiloBoxInfo(filtrosRow.getCell(1), false);
+        filtrosRow.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF33475B' } };
+        filtrosRow.getCell(1).alignment = { vertical: 'middle', indent: 1 };
+        filtrosRow.height = 18;
 
         const rangoRow = ws.addRow(['Rango consultado: ' + rangoTxt]);
         ws.mergeCells('A3:H3');
-        rangoRow.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF556070' } };
+        estiloBoxInfo(rangoRow.getCell(1), false);
+        rangoRow.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF33475B' } };
+        rangoRow.getCell(1).alignment = { vertical: 'middle', indent: 1 };
+        rangoRow.height = 18;
 
         const exportadoRow = ws.addRow(['Exportado: ' + formatFechaHora(new Date())]);
         ws.mergeCells('A4:H4');
-        exportadoRow.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF556070' } };
+        estiloBoxInfo(exportadoRow.getCell(1), false);
+        exportadoRow.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF33475B' } };
+        exportadoRow.getCell(1).alignment = { vertical: 'middle', indent: 1 };
+        exportadoRow.height = 18;
 
-        // --- Encabezado real de la tabla (fila 5) ---
+        // Fila de espacio en blanco (separacion visual antes de la tabla)
+        ws.addRow([]);
+
+        // --- Encabezado real de la tabla (fila 6) ---
         const encabezados = ['Conductor', 'Placa', 'Inicio de tramo', 'Fin de tramo',
             'Conducci\u00f3n', 'Detenido - motor apagado', 'Detenido - motor encendido', 'Distancia (km)'];
         const headerRow = ws.addRow(encabezados);
@@ -1041,10 +1064,16 @@
             row.height = 16;
         });
 
+        // AutoFiltro nativo de Excel en el encabezado (flechitas desplegables ya listas,
+        // sin que el usuario tenga que ir a Datos > Filtro manualmente).
+        if (filas.length > 0) {
+            ws.autoFilter = { from: { row: 6, column: 1 }, to: { row: 6 + filas.length, column: 8 } };
+        }
+
         // Fila de totales (suma real via formula de Excel, no un numero fijo)
         if (filas.length > 0) {
-            const primeraFilaDatos = 6;
-            const ultimaFilaDatos = 5 + filas.length;
+            const primeraFilaDatos = 7;
+            const ultimaFilaDatos = 6 + filas.length;
             const totalRow = ws.addRow(['', '', '', 'TOTAL:',
                 { formula: 'SUM(E' + primeraFilaDatos + ':E' + ultimaFilaDatos + ')' },
                 { formula: 'SUM(F' + primeraFilaDatos + ':F' + ultimaFilaDatos + ')' },
