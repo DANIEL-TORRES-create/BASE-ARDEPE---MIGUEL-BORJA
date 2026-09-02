@@ -28,7 +28,7 @@
                 <span class="kpi-value" id="kpi-conductores">--</span>
             </div>
             <div class="kpi-box bg-grey">
-                <span class="kpi-label">Unidades con movimiento</span>
+                <span class="kpi-label">TOTAL VIAJES</span>
                 <span class="kpi-value" id="kpi-sesiones">--</span>
             </div>
             <div class="kpi-box bg-green">
@@ -1140,7 +1140,7 @@
         const lista = filtrarDatos(conductoresData);
         const listaSC = filtrarDatos(scData);
 
-        // "Unidades con movimiento": cuenta placas UNICAS que tuvieron al menos un tramo
+        // "TOTAL VIAJES": cuenta placas UNICAS que tuvieron al menos un tramo
         // (no la suma de tramos de todos los conductores).
         const placasUnicas = {};
         lista.forEach(function(c) {
