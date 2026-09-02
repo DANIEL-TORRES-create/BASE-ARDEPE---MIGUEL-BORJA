@@ -6,7 +6,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
-    <link rel="stylesheet" href="styles.css?v=3">
+    <link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
 <div class="card">
@@ -15,7 +15,7 @@
         <div class="header">
             <div>
                 <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida</p>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v5)</span></p>
             </div>
             <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
@@ -241,7 +241,7 @@
 
         const btn = document.getElementById('btn-consultar');
         btn.disabled = true;
-        btn.innerText = '&#9203; Consultando...';
+        btn.innerText = '\u23F3 Consultando...';
         mostrarEstadoTabla('cargando');
 
         try {
@@ -532,9 +532,9 @@
 
         grupos.forEach(function(c) {
             const ultima = c.sesiones[c.sesiones.length - 1];
-            if (!ultima || !ultima.deviceId) return;
+            if (!ultima || !ultima.deviceId) { c._diagVivo = 'sin sesion/placa'; return; }
             const info = mapaEstadoVivo[ultima.deviceId];
-            if (!info) return;
+            if (!info) { c._diagVivo = 'sin respuesta DeviceStatusInfo'; return; }
 
             const driverIdVivo = info.driver && info.driver.id;
             const esSinConductorVivo = !driverIdVivo || driverIdVivo === 'UnknownDriverId';
@@ -546,6 +546,7 @@
                 activoVivo = (driverIdVivo === c.id); // el conductor sigue siendo el mismo
             }
 
+            c._diagVivo = 'vivo: driver=' + (driverIdVivo || 'ninguno') + ' vs grupo=' + c.id + ' -> ' + activoVivo;
             c.estaActivo = activoVivo;
             ultima.esSinFin = activoVivo;
             if (activoVivo) ultima.fin = null;
@@ -600,7 +601,8 @@
 
         const estadoBadge = c.estaActivo
             ? (esSC ? '<span class="badge badge-sc-mov">En movimiento sin conductor</span>' : '<span class="badge badge-activo">&#128994; VIAJE EN CURSO</span>')
-            : '<span class="badge badge-cerrado">VIAJE CULMINADO</span>';
+            : '<span class="badge badge-cerrado">VIAJE CULMINADO</span>' +
+              (c._diagVivo ? '<div style="font-size:9px;color:#c2c9d3;margin-top:2px;">' + c._diagVivo + '</div>' : '');
 
         const nsesiones = c.sesiones.length;
         const placasTexto = esSC ? c.placa : (c.placas || []).join(', ');
