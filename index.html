@@ -16,7 +16,7 @@
         <div class="header">
             <div>
                 <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v12)</span></p>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v13)</span></p>
             </div>
             <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
@@ -964,21 +964,44 @@
         const wb = new ExcelJS.Workbook();
         wb.creator = 'ARDEPE';
         const nombreHoja = modo === 'resumen' ? 'Resumen' : 'Detalle';
-        const ws = wb.addWorksheet(nombreHoja, { views: [{ state: 'frozen', ySplit: 1 }] });
+        const ws = wb.addWorksheet(nombreHoja, { views: [{ state: 'frozen', ySplit: 5 }] });
 
-        ws.columns = [
-            { header: 'Conductor', key: 'conductor', width: 28 },
-            { header: 'Placa', key: 'placa', width: 22 },
-            { header: 'Inicio de tramo', key: 'inicio', width: 20 },
-            { header: 'Fin de tramo', key: 'fin', width: 20 },
-            { header: 'Conducci\u00f3n', key: 'conduccion', width: 13, style: { numFmt: '[h]:mm' } },
-            { header: 'Detenido - motor apagado', key: 'detApagado', width: 22, style: { numFmt: '[h]:mm' } },
-            { header: 'Detenido - motor encendido', key: 'detEncendido', width: 24, style: { numFmt: '[h]:mm' } },
-            { header: 'Distancia (km)', key: 'distancia', width: 14 }
-        ];
+        // Anchos de columna (sin usar ws.columns para no generar un encabezado automatico
+        // en la fila 1; el encabezado real va mas abajo, despues del bloque de filtros).
+        const anchos = [28, 22, 20, 20, 13, 22, 24, 14];
+        anchos.forEach(function (w, i) { ws.getColumn(i + 1).width = w; });
 
-        // Encabezado: negrita, blanco, fondo azul institucional
-        const headerRow = ws.getRow(1);
+        // --- Bloque de filtros aplicados (contexto de la consulta) ---
+        const fFlota = document.getElementById('filtro-flota').value;
+        const fConductorTxt = document.getElementById('filtro-conductor').value.trim();
+        const fPlacaTxt = document.getElementById('filtro-placa').value.trim();
+        const rangoTxt = document.getElementById('fecha-inicio').value + ' ' + document.getElementById('hora-inicio').value +
+            '  a  ' + document.getElementById('fecha-fin').value + ' ' + document.getElementById('hora-fin').value;
+
+        const tituloRow = ws.addRow(['ARDEPE - Control de Horas de Conducci\u00f3n (' + nombreHoja + ')']);
+        ws.mergeCells('A1:H1');
+        tituloRow.getCell(1).font = { bold: true, size: 13, color: { argb: 'FF002D72' } };
+        tituloRow.height = 22;
+
+        const filtrosRow = ws.addRow(['Filtros: Flota = ' + fFlota +
+            '  |  Placa = ' + (fPlacaTxt || 'Todas') +
+            '  |  Conductor = ' + (fConductorTxt || 'Todos') +
+            (mostrarSC ? '  |  Incluye "Sin conductor"' : '')]);
+        ws.mergeCells('A2:H2');
+        filtrosRow.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF556070' } };
+
+        const rangoRow = ws.addRow(['Rango consultado: ' + rangoTxt]);
+        ws.mergeCells('A3:H3');
+        rangoRow.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF556070' } };
+
+        const exportadoRow = ws.addRow(['Exportado: ' + formatFechaHora(new Date())]);
+        ws.mergeCells('A4:H4');
+        exportadoRow.getCell(1).font = { italic: true, size: 10, color: { argb: 'FF556070' } };
+
+        // --- Encabezado real de la tabla (fila 5) ---
+        const encabezados = ['Conductor', 'Placa', 'Inicio de tramo', 'Fin de tramo',
+            'Conducci\u00f3n', 'Detenido - motor apagado', 'Detenido - motor encendido', 'Distancia (km)'];
+        const headerRow = ws.addRow(encabezados);
         headerRow.eachCell(function (cell) {
             cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF002D72' } };
@@ -991,6 +1014,10 @@
             };
         });
         headerRow.height = 20;
+        // Formato numerico de horas para las columnas E, F, G en las filas de datos
+        ['E', 'F', 'G'].forEach(function (col) {
+            ws.getColumn(col).numFmt = '[h]:mm';
+        });
 
         // Filas de datos: bordes finos + fondo alterno
         filas.forEach(function (fila, ri) {
@@ -1016,8 +1043,8 @@
 
         // Fila de totales (suma real via formula de Excel, no un numero fijo)
         if (filas.length > 0) {
-            const primeraFilaDatos = 2;
-            const ultimaFilaDatos = 1 + filas.length;
+            const primeraFilaDatos = 6;
+            const ultimaFilaDatos = 5 + filas.length;
             const totalRow = ws.addRow(['', '', '', 'TOTAL:',
                 { formula: 'SUM(E' + primeraFilaDatos + ':E' + ultimaFilaDatos + ')' },
                 { formula: 'SUM(F' + primeraFilaDatos + ':F' + ultimaFilaDatos + ')' },
