@@ -16,7 +16,7 @@
         <div class="header">
             <div>
                 <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v9)</span></p>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v10)</span></p>
             </div>
             <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
@@ -888,23 +888,33 @@
         const filas = [];
 
         if (modo === 'resumen') {
-            // Una fila por Conductor/Placa: Inicio = tramo mas antiguo, Fin = tramo mas
-            // reciente ("ultima fecha"), y los totales de Conduccion/Detenido/Distancia.
+            // Una fila por CADA combinacion Conductor+Placa (si un conductor uso 2 placas,
+            // salen 2 filas, una por placa). Inicio = tramo mas antiguo de esa placa,
+            // Fin = tramo mas reciente ("ultima fecha"), totales sumados solo de esa placa.
             datos.forEach(function (c) {
                 if (!c.sesiones.length) return;
-                const placaTexto = c.conductor === 'SIN CONDUCTOR' ? c.placa : (c.placas || []).join(', ');
-                const primerTramo = c.sesiones[0];
-                const ultimoTramo = c.sesiones[c.sesiones.length - 1];
-                filas.push([
-                    c.nombre || c.conductor,
-                    placaTexto,
-                    primerTramo.inicio ? formatFechaHora(primerTramo.inicio) : '',
-                    ultimoTramo.fin ? formatFechaHora(ultimoTramo.fin) : 'EN CURSO',
-                    c.totalConduccion / 24,
-                    c.totalDetenido / 24,
-                    c.totalRalenti / 24,
-                    Number(c.totalDistancia.toFixed(1))
-                ]);
+                const porPlaca = {};
+                c.sesiones.forEach(function (s) {
+                    if (!porPlaca[s.placa]) porPlaca[s.placa] = [];
+                    porPlaca[s.placa].push(s);
+                });
+
+                Object.keys(porPlaca).forEach(function (placa) {
+                    const tramos = porPlaca[placa].slice().sort(function (a, b) { return (a.inicio || 0) - (b.inicio || 0); });
+                    const primerTramo = tramos[0];
+                    const ultimoTramo = tramos[tramos.length - 1];
+                    const sumar = function (campo) { return tramos.reduce(function (s, x) { return s + x[campo]; }, 0); };
+                    filas.push([
+                        c.nombre || c.conductor,
+                        placa,
+                        primerTramo.inicio ? formatFechaHora(primerTramo.inicio) : '',
+                        ultimoTramo.fin ? formatFechaHora(ultimoTramo.fin) : 'EN CURSO',
+                        sumar('conduccion') / 24,
+                        sumar('detenido') / 24,
+                        sumar('ralenti') / 24,
+                        Number(sumar('distancia').toFixed(1))
+                    ]);
+                });
             });
         } else {
             // Una fila por CADA tramo individual, sin agrupar.
