@@ -6,7 +6,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
-    <link rel="stylesheet" href="styles.css?v=6">
+    <link rel="stylesheet" href="styles.css?v=8">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
@@ -16,7 +16,7 @@
         <div class="header">
             <div>
                 <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;"> </span></p>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v20)</span></p>
             </div>
             <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
@@ -103,11 +103,6 @@
             </div>
 
             <div class="field-group">
-                <label class="toggle-sc">
-                    <input type="checkbox" id="toggle-sc" onchange="toggleSinConductor()">
-                    Mostrar "Sin conductor"
-                </label>
-
                 <div class="combo-exportar" id="combo-exportar">
                     <button class="btn btn-ghost" onclick="event.stopPropagation(); toggleMenuExportar()">&#128190; Exportar Excel</button>
                     <div class="combo-exportar-lista" id="combo-exportar-lista">
@@ -139,6 +134,31 @@
                 <tr><td colspan="9" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
             </tbody>
         </table>
+    </div>
+
+    <!-- Modal Paso 1: Posible relevo / conduccion a taller -->
+    <div class="modal-overlay-generico" id="modal-relevo-overlay" style="display:none;">
+        <div class="modal-box-generico">
+            <h3>&#9888; Posible relevo de unidad detectado</h3>
+            <p>Se encontraron unidades que fueron usadas por m&aacute;s de un conductor en el periodo consultado (posible entrega/relevo, o traslado a taller).</p>
+            <p><b>&iquest;Desea mostrar a ambos conductores</b> (marcando al de menor conducci&oacute;n como posible relevo), <b>o prefiere quedarse solo con el conductor de mayor conducci&oacute;n</b> por unidad?</p>
+            <div class="modal-botones-generico">
+                <button class="btn btn-ghost" onclick="responderModalRelevo(true)">S&iacute;, mostrar ambos (con etiqueta)</button>
+                <button class="btn btn-blue" onclick="responderModalRelevo(false)">No, quedarme solo con el de mayor conducci&oacute;n</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Paso 2: Asociar tramos "Sin conductor" -->
+    <div class="modal-overlay-generico" id="modal-asociar-overlay" style="display:none;">
+        <div class="modal-box-generico modal-box-ancho">
+            <h3>Unidades sin conductor detectadas</h3>
+            <p>Para cada tramo, si hay un conductor que tambi&eacute;n us&oacute; esa misma placa en el periodo consultado, se sugiere como candidato. Puede asociarlo o dejarlo como "Sin conductor".</p>
+            <div id="lista-asociar-contenido"></div>
+            <div class="modal-botones-generico">
+                <button class="btn btn-blue" onclick="cerrarModalAsociar()">Continuar</button>
+            </div>
+        </div>
     </div>
 
 </div>
@@ -230,20 +250,31 @@
             return !t || d.name.toUpperCase().includes(t);
         }).slice(0, 50);
 
+        // Opcion "TODAS" siempre visible arriba, igual que el select de Flota.
+        let html = '<div class="combo-placa-item combo-placa-todas" data-id="__TODAS__">TODAS</div>';
+
         if (items.length === 0) {
-            lista.innerHTML = '<div class="combo-placa-empty">Sin coincidencias</div>';
-            return;
+            html += '<div class="combo-placa-empty">Sin coincidencias</div>';
+            lista.innerHTML = html;
+        } else {
+            html += items.map(function (d) {
+                return '<div class="combo-placa-item" data-id="' + d.id + '">' + esc(d.name) + '</div>';
+            }).join('');
+            lista.innerHTML = html;
         }
-        lista.innerHTML = items.map(function (d) {
-            return '<div class="combo-placa-item" data-id="' + d.id + '">' + esc(d.name) + '</div>';
-        }).join('');
+
         Array.prototype.forEach.call(lista.querySelectorAll('.combo-placa-item'), function (el) {
             el.onclick = function () {
                 const id = el.getAttribute('data-id');
-                const disp = dispositivosGlobal.find(function (d) { return d.id === id; });
-                if (disp) {
-                    placaSeleccionadaId = id;
-                    document.getElementById('filtro-placa').value = disp.name;
+                if (id === '__TODAS__') {
+                    placaSeleccionadaId = null;
+                    document.getElementById('filtro-placa').value = '';
+                } else {
+                    const disp = dispositivosGlobal.find(function (d) { return d.id === id; });
+                    if (disp) {
+                        placaSeleccionadaId = id;
+                        document.getElementById('filtro-placa').value = disp.name;
+                    }
                 }
                 lista.classList.remove('open');
                 filtrosCambiaron();
@@ -355,7 +386,19 @@
             actualizarProgreso(dispositivos.length, dispositivos.length, 'Ajustando tramos al filtro exacto...');
             await procesarYAgrupar(todosLosTrips, mapaDisp, fromDate, toDate);
 
-            // 5. Renderizar
+            // 5. Deteccion de posibles relevos/conduccion a taller (misma placa con 2+
+            // conductores en el periodo) y pregunta al usuario como manejarlo.
+            calcularGanadoresPorPlaca();
+            const mostrarRelevos = await preguntarMostrarRelevos();
+            aplicarDecisionRelevos(mostrarRelevos);
+
+            // 6. Si quedaron tramos "SIN CONDUCTOR", ofrecer asociarlos a un conductor
+            // que tambien haya usado esa misma placa dentro del periodo consultado.
+            if (scData.length > 0) {
+                await mostrarModalAsociar();
+            }
+
+            // 7. Renderizar
             renderizarTabla();
             actualizarKPIs();
 
@@ -369,12 +412,24 @@
     }
 
     async function obtenerDispositivos() {
-        // Si ya se eligio una placa especifica del combobox, no hace falta pedir toda la
-        // flota de nuevo: se consulta solo esa unidad puntual (mas rapido).
+        // 1) Si se eligio una placa especifica haciendo clic en la lista, se consulta
+        // SOLO esa unidad (mas rapido, no trae toda la flota).
         if (placaSeleccionadaId) {
             const yaConocido = dispositivosGlobal.find(function (d) { return d.id === placaSeleccionadaId; });
             if (yaConocido) return [yaConocido];
         }
+
+        // 2) Si hay texto escrito en el campo Placa (aunque no se haya hecho clic en la
+        // lista), se respeta igual: se filtra el catalogo ya cargado por ese texto.
+        const textoPlaca = document.getElementById('filtro-placa').value.trim().toUpperCase();
+        if (textoPlaca && dispositivosGlobal.length > 0) {
+            const coincidencias = dispositivosGlobal.filter(function (d) {
+                return d.name.toUpperCase().includes(textoPlaca);
+            });
+            if (coincidencias.length > 0) return coincidencias;
+        }
+
+        // 3) Sin ninguna placa especifica ("TODAS"): recien aqui se trae la flota completa.
         const res = await geotabApi.call("Get", {
             typeName: "Device",
             search: {
@@ -779,6 +834,180 @@
         ordenarDatos();
     }
 
+    // ---------------- Paso 1: deteccion de posibles relevos / conduccion a taller ----------------
+
+    // Para cada placa, compara la conduccion total por conductor. El de MENOR conduccion
+    // en esa placa queda marcado como posible relevo (no se decide aun si se oculta).
+    function calcularGanadoresPorPlaca() {
+        const porPlaca = {}; // placa -> [{conductorId, sesiones: [...]}]
+
+        conductoresData.forEach(function (c) {
+            const agrupado = {};
+            c.sesiones.forEach(function (s) {
+                if (!agrupado[s.placa]) agrupado[s.placa] = { conduccion: 0, sesiones: [] };
+                agrupado[s.placa].conduccion += s.conduccion;
+                agrupado[s.placa].sesiones.push(s);
+            });
+            Object.keys(agrupado).forEach(function (placa) {
+                if (!porPlaca[placa]) porPlaca[placa] = [];
+                porPlaca[placa].push({ conductorId: c.id, conduccion: agrupado[placa].conduccion, sesiones: agrupado[placa].sesiones });
+            });
+        });
+
+        Object.keys(porPlaca).forEach(function (placa) {
+            const entradas = porPlaca[placa];
+            if (entradas.length < 2) return; // solo aplica si 2+ conductores compartieron la placa
+            const maxConduccion = Math.max.apply(null, entradas.map(function (e) { return e.conduccion; }));
+            entradas.forEach(function (e) {
+                if (e.conduccion < maxConduccion) {
+                    e.sesiones.forEach(function (s) { s.esPosibleRelevo = true; });
+                }
+            });
+        });
+    }
+
+    function preguntarMostrarRelevos() {
+        const hayRelevos = conductoresData.some(function (c) { return c.sesiones.some(function (s) { return s.esPosibleRelevo; }); });
+        if (!hayRelevos) return Promise.resolve(true); // nada que preguntar
+
+        return new Promise(function (resolve) {
+            window._resolverModalRelevo = resolve;
+            document.getElementById('modal-relevo-overlay').style.display = 'flex';
+        });
+    }
+
+    function responderModalRelevo(mostrar) {
+        document.getElementById('modal-relevo-overlay').style.display = 'none';
+        if (window._resolverModalRelevo) {
+            window._resolverModalRelevo(mostrar);
+            window._resolverModalRelevo = null;
+        }
+    }
+
+    // Si mostrar=false: elimina del todo las sesiones marcadas como posible relevo
+    // (se queda solo el conductor de mayor conduccion por placa). Si mostrar=true: no
+    // quita nada, las sesiones marcadas ya llevan su bandera para mostrar el badge.
+    function aplicarDecisionRelevos(mostrar) {
+        if (mostrar) return;
+
+        conductoresData.forEach(function (c) {
+            c.sesiones = c.sesiones.filter(function (s) { return !s.esPosibleRelevo; });
+        });
+        conductoresData = conductoresData.filter(function (c) { return c.sesiones.length > 0; });
+
+        conductoresData.forEach(function (c) {
+            c.totalConduccion = c.sesiones.reduce(function (s, x) { return s + x.conduccion; }, 0);
+            c.totalDetenido = c.sesiones.reduce(function (s, x) { return s + x.detenido; }, 0);
+            c.totalRalenti = c.sesiones.reduce(function (s, x) { return s + x.ralenti; }, 0);
+            c.totalDistancia = c.sesiones.reduce(function (s, x) { return s + x.distancia; }, 0);
+            c.placas = c.sesiones.map(function (s) { return s.placa; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
+            c.estaActivo = c.sesiones.some(function (s) { return s.esSinFin; });
+        });
+
+        ordenarDatos();
+    }
+
+    // ---------------- Paso 2: asociar tramos "Sin conductor" ----------------
+
+    function mostrarModalAsociar() {
+        const contenedor = document.getElementById('lista-asociar-contenido');
+        contenedor.innerHTML = '';
+
+        let idx = 0;
+        scData.forEach(function (grupoSC) {
+            grupoSC.sesiones.forEach(function (s) {
+                if (s._migrado) return; // por si ya se proceso en una vuelta anterior
+                idx++;
+                const elId = 'asociar-' + idx;
+
+                // Candidato: un conductor que TAMBIEN tenga sesiones en esta misma placa
+                // dentro del periodo consultado.
+                const candidato = conductoresData.find(function (c) {
+                    return (c.placas || []).indexOf(s.placa) !== -1;
+                });
+
+                const div = document.createElement('div');
+                div.className = 'asociar-item';
+                div.id = elId;
+
+                const conduccionCandidatoTxt = candidato
+                    ? formatHoras(candidato.sesiones.filter(function (x) { return x.placa === s.placa; }).reduce(function (a, x) { return a + x.conduccion; }, 0))
+                    : '';
+
+                div.innerHTML =
+                    '<div class="asociar-item-titulo">' + esc(s.placa) + '</div>' +
+                    '<div class="asociar-item-meta">' + (s.inicio ? formatFechaHora(s.inicio) : '') + ' &#8594; ' +
+                        (s.fin ? formatFechaHora(s.fin) : 'EN CURSO') + ' &middot; Conducci&oacute;n: ' + formatHoras(s.conduccion) + '</div>' +
+                    (candidato
+                        ? '<div class="asociar-item-candidato">Candidato sugerido: <b>' + esc(candidato.nombre) + '</b> (condujo esta placa ' + conduccionCandidatoTxt + ' en el periodo)</div>'
+                        : '<div class="asociar-item-candidato">Sin candidato: ning&uacute;n conductor uso esta placa en el periodo consultado.</div>') +
+                    '<div class="asociar-item-botones">' +
+                        (candidato ? '<button class="btn-asociar" onclick="asociarTramo(\'' + elId + '\', \'' + grupoSC.id + '\', ' + JSON.stringify(s.inicio ? s.inicio.getTime() : null) + ', \'' + candidato.id + '\')">Asociar a ' + esc(candidato.nombre) + '</button>' : '') +
+                        '<button class="btn-omitir" onclick="omitirAsociar(\'' + elId + '\')">Dejar como Sin conductor</button>' +
+                    '</div>';
+
+                contenedor.appendChild(div);
+            });
+        });
+
+        if (idx === 0) return Promise.resolve(); // no habia nada pendiente
+
+        return new Promise(function (resolve) {
+            window._resolverModalAsociar = resolve;
+            document.getElementById('modal-asociar-overlay').style.display = 'flex';
+        });
+    }
+
+    function asociarTramo(elId, grupoSCId, inicioMs, conductorDestinoId) {
+        const grupoSC = scData.find(function (g) { return g.id === grupoSCId; });
+        if (!grupoSC) return;
+        const sesion = grupoSC.sesiones.find(function (s) { return (s.inicio ? s.inicio.getTime() : null) === inicioMs; });
+        if (!sesion || sesion._migrado) return;
+
+        const destino = conductoresData.find(function (c) { return c.id === conductorDestinoId; });
+        if (!destino) return;
+
+        // Migrar: quitar de "sin conductor" y agregar al conductor destino
+        sesion._migrado = true;
+        sesion.sinConductor = false;
+        destino.sesiones.push(sesion);
+        destino.sesiones.sort(function (a, b) { return (a.inicio || 0) - (b.inicio || 0); });
+
+        // Recalcular totales del conductor destino
+        destino.totalConduccion = destino.sesiones.reduce(function (s, x) { return s + x.conduccion; }, 0);
+        destino.totalDetenido = destino.sesiones.reduce(function (s, x) { return s + x.detenido; }, 0);
+        destino.totalRalenti = destino.sesiones.reduce(function (s, x) { return s + x.ralenti; }, 0);
+        destino.totalDistancia = destino.sesiones.reduce(function (s, x) { return s + x.distancia; }, 0);
+        destino.placas = destino.sesiones.map(function (s) { return s.placa; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
+        destino.estaActivo = destino.sesiones.some(function (s) { return s.esSinFin; });
+
+        // Quitar del grupo SC; si el grupo queda vacio, se elimina de scData
+        grupoSC.sesiones = grupoSC.sesiones.filter(function (s) { return !s._migrado; });
+        if (grupoSC.sesiones.length === 0) {
+            scData = scData.filter(function (g) { return g.id !== grupoSCId; });
+        }
+
+        const el = document.getElementById(elId);
+        if (el) { el.classList.add('resuelto'); el.innerHTML += '<div style="font-size:11px;font-weight:800;color:#1a8f4c;margin-top:6px;">&#10003; Asociado</div>'; }
+
+        ordenarDatos();
+    }
+
+    function omitirAsociar(elId) {
+        const el = document.getElementById(elId);
+        if (el) { el.classList.add('resuelto'); el.innerHTML += '<div style="font-size:11px;font-weight:800;color:#8892a0;margin-top:6px;">Se deja como Sin conductor</div>'; }
+    }
+
+    function cerrarModalAsociar() {
+        document.getElementById('modal-asociar-overlay').style.display = 'none';
+        if (window._resolverModalAsociar) {
+            window._resolverModalAsociar();
+            window._resolverModalAsociar = null;
+        }
+        renderizarTabla();
+        actualizarKPIs();
+    }
+
     // ---------------- Filtros y orden ----------------
 
     function filtrarDatos(lista) {
@@ -875,12 +1104,8 @@
         });
     }
 
-    function toggleSinConductor() {
-        mostrarSC = document.getElementById('toggle-sc').checked;
-        document.getElementById('kpi-sc-box').style.display = mostrarSC ? 'flex' : 'none';
-        renderizarTabla();
-        actualizarKPIs();
-    }
+    // toggleSinConductor removido: la vista "Sin conductor" ahora se maneja desde el
+    // flujo de asociacion de conductores (ver Paso 2, pendiente de implementar).
 
     // Los filtros de flota/conductor/placa solo filtran los datos YA CARGADOS
     // (no vuelven a consultar la API).
@@ -1202,6 +1427,7 @@
         tr.innerHTML =
             '<td style="padding-left:36px;">' +
                 '<span style="font-weight:700; color:#002d72;">' + esc(s.placa) + '</span>' +
+                (s.esPosibleRelevo ? '<span class="badge-relevo">&#9888; Posible relevo</span>' : '') +
             '</td>' +
             '<td>' + badgeFlota + '</td>' +
             '<td style="font-size:11.5px;">' + inicioTxt + '</td>' +
