@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lead Time por CD</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="leadtime.css?v=1">
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+
+<div class="card">
+
+    <!-- Header -->
+    <div class="header">
+        <div>
+            <h2 class="title">ARDEPE &mdash; Lead Time por CD</h2>
+            <p class="subtitle">Rondas Planta Pucusana &#8594; Centros de Distribuci&oacute;n &#8594; retorno</p>
+        </div>
+        <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-row">
+        <div class="kpi-box bg-navy">
+            <span class="kpi-label">Rondas Terminadas</span>
+            <span class="kpi-value" id="kpi-terminadas">--</span>
+        </div>
+        <div class="kpi-box bg-amber">
+            <span class="kpi-label">Rondas En Curso</span>
+            <span class="kpi-value" id="kpi-encurso">--</span>
+        </div>
+        <div class="kpi-box bg-blue">
+            <span class="kpi-label">Duraci&oacute;n Promedio</span>
+            <span class="kpi-value" id="kpi-promedio">--</span>
+        </div>
+        <div class="kpi-box bg-red">
+            <span class="kpi-label">Excedieron Tiempo Esperado</span>
+            <span class="kpi-value" id="kpi-excedidas">--</span>
+        </div>
+        <div class="kpi-box bg-teal">
+            <span class="kpi-label">CD Mayor Espera Promedio</span>
+            <span class="kpi-value kpi-value-text" id="kpi-topcd">--</span>
+        </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="sticky-header" id="sticky-header">
+        <div class="toolbar">
+            <div class="field-group">
+                <div class="field">
+                    <label class="field-label">Flota</label>
+                    <select id="filtro-flota" class="select-ctrl" onchange="filtrosCambiaron()">
+                        <option value="TODOS">TODAS</option>
+                        <option value="LOCAL">LOCAL</option>
+                        <option value="PROVINCIA">PROVINCIA</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label class="field-label">Placa</label>
+                    <div class="combo-placa" id="combo-placa">
+                        <input type="text" id="filtro-placa" class="input-ctrl" placeholder="Ej: ABC-123" style="width:180px;" autocomplete="off">
+                        <div class="combo-placa-lista" id="combo-placa-lista"></div>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="field-label">Conductor</label>
+                    <input type="text" id="filtro-conductor" class="input-ctrl" placeholder="Nombre o usuario..." style="width:170px;" oninput="filtrosCambiaron()">
+                </div>
+
+                <div class="separator"></div>
+
+                <div class="field">
+                    <label class="field-label">Inicio</label>
+                    <div style="display:flex; gap:6px;">
+                        <input type="date" id="fecha-inicio" class="input-ctrl">
+                        <input type="time" id="hora-inicio" class="input-ctrl" value="05:00" style="width:96px;">
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="field-label">Fin</label>
+                    <div style="display:flex; gap:6px;">
+                        <input type="date" id="fecha-fin" class="input-ctrl">
+                        <input type="time" id="hora-fin" class="input-ctrl" value="05:00" style="width:96px;">
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="field-label">&nbsp;</label>
+                    <button class="btn btn-blue" id="btn-consultar" onclick="consultar()">🔍 Consultar</button>
+                </div>
+            </div>
+
+            <div class="field-group">
+                <div class="combo-exportar" id="combo-exportar">
+                    <button class="btn btn-ghost" onclick="event.stopPropagation(); toggleMenuExportar()">&#128190; Exportar Excel</button>
+                    <div class="combo-exportar-lista" id="combo-exportar-lista">
+                        <div class="combo-exportar-item" onclick="exportarExcel('resumen')">Resumen</div>
+                        <div class="combo-exportar-item" onclick="exportarExcel('detalle')">Detalle</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div><!-- /sticky-header -->
+
+    <!-- Cuerpo: tabla principal + panel lateral -->
+    <div class="layout-principal">
+
+        <!-- Tabla de rondas -->
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Placa / Conductor</th>
+                        <th>Flota</th>
+                        <th>Ruta</th>
+                        <th onclick="ordenarPor('salida')" style="cursor:pointer;">Salida Planta</th>
+                        <th>Retorno Planta</th>
+                        <th onclick="ordenarPor('duracion')" style="cursor:pointer;">Duraci&oacute;n Total</th>
+                        <th>Cumplimiento</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-principal">
+                    <tr><td colspan="8" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Panel lateral de rankings -->
+        <div class="panel-lateral" id="panel-lateral" style="display:none;">
+            <div class="panel-seccion">
+                <div class="panel-titulo">CDs con m&aacute;s tiempo de espera</div>
+                <div id="ranking-cds"></div>
+            </div>
+            <div class="panel-seccion">
+                <div class="panel-titulo">Rondas m&aacute;s largas</div>
+                <div id="ranking-rondas"></div>
+            </div>
+            <div class="panel-seccion">
+                <div class="panel-titulo">Rutas m&aacute;s lentas (promedio)</div>
+                <div id="ranking-rutas"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Barra de progreso -->
+    <div class="progreso-wrap" id="progreso-wrap" style="display:none;">
+        <div class="progreso-spinner"></div>
+        <div class="progreso-texto" id="progreso-texto">Consultando...</div>
+        <div class="progreso-bar-wrap"><div class="progreso-bar-fill" id="progreso-bar-fill"></div></div>
+    </div>
+
+    <!-- Modal: minimapa de la ronda -->
+    <div class="modal-overlay-generico" id="modal-mapa-overlay" style="display:none;" onclick="if(event.target===this) cerrarModalMapa()">
+        <div class="modal-box-generico modal-box-ancho">
+            <h3 id="modal-mapa-titulo">Ruta de la ronda</h3>
+            <div id="mapa-ronda" style="width:100%; height:420px; border-radius:10px; overflow:hidden;"></div>
+            <div class="modal-botones-generico">
+                <button class="btn btn-blue" onclick="cerrarModalMapa()">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<div class="timeline-tooltip" id="timeline-tooltip"></div>
+
+<script src="leadtime.js?v=1"></script>
+</body>
+</html>
