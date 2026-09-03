@@ -6,7 +6,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
-    <link rel="stylesheet" href="styles.css?v=8">
+    <link rel="stylesheet" href="styles.css?v=10">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
@@ -16,7 +16,7 @@
         <div class="header">
             <div>
                 <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v20)</span></p>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v22)</span></p>
             </div>
             <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
@@ -152,12 +152,27 @@
     <!-- Modal Paso 2: Asociar tramos "Sin conductor" -->
     <div class="modal-overlay-generico" id="modal-asociar-overlay" style="display:none;">
         <div class="modal-box-generico modal-box-ancho">
-            <h3>Unidades sin conductor detectadas</h3>
-            <p>Para cada tramo, si hay un conductor que tambi&eacute;n us&oacute; esa misma placa en el periodo consultado, se sugiere como candidato. Puede asociarlo o dejarlo como "Sin conductor".</p>
-            <div id="lista-asociar-contenido"></div>
-            <div class="modal-botones-generico">
-                <button class="btn btn-blue" onclick="cerrarModalAsociar()">Continuar</button>
+
+            <div id="vista-lista-asociar">
+                <h3>Unidades sin conductor detectadas</h3>
+                <p>Para cada placa, si hay un conductor que tambi&eacute;n la us&oacute; en el periodo consultado, se sugiere como candidato. Puede asociarla, buscar otro conductor, o dejarla como "Sin conductor". <b>Nada se aplica todav&iacute;a</b> hasta que confirme en el resumen final.</p>
+                <div id="lista-asociar-contenido"></div>
+                <div class="modal-botones-generico">
+                    <button class="btn btn-ghost" onclick="omitirTodoAsociar()">Omitir todo (no asociar nada)</button>
+                    <button class="btn btn-blue" onclick="verResumenAsociar()">Continuar</button>
+                </div>
             </div>
+
+            <div id="vista-resumen-asociar" style="display:none;">
+                <h3>Resumen de cambios</h3>
+                <p>Estos son los cambios que se aplicar&aacute;n. Revise antes de confirmar.</p>
+                <div id="resumen-asociar-contenido"></div>
+                <div class="modal-botones-generico">
+                    <button class="btn btn-ghost" onclick="volverAListaAsociar()">&#8592; Volver</button>
+                    <button class="btn btn-blue" onclick="aplicarResumenAsociar()">Aceptar y aplicar</button>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -908,49 +923,24 @@
     }
 
     // ---------------- Paso 2: asociar tramos "Sin conductor" ----------------
+    // Flujo en 2 etapas: primero se MARCAN decisiones (sin tocar los datos todavia),
+    // luego se muestra un resumen y solo al confirmar se aplican los cambios reales.
+
+    let _decisionesAsociar = {}; // grupoSCId -> {accion:'asociar', conductorId, conductorNombre} | {accion:'omitir'}
 
     function mostrarModalAsociar() {
         const contenedor = document.getElementById('lista-asociar-contenido');
         contenedor.innerHTML = '';
+        _decisionesAsociar = {};
 
-        let idx = 0;
+        if (scData.length === 0) return Promise.resolve();
+
         scData.forEach(function (grupoSC) {
-            grupoSC.sesiones.forEach(function (s) {
-                if (s._migrado) return; // por si ya se proceso en una vuelta anterior
-                idx++;
-                const elId = 'asociar-' + idx;
-
-                // Candidato: un conductor que TAMBIEN tenga sesiones en esta misma placa
-                // dentro del periodo consultado.
-                const candidato = conductoresData.find(function (c) {
-                    return (c.placas || []).indexOf(s.placa) !== -1;
-                });
-
-                const div = document.createElement('div');
-                div.className = 'asociar-item';
-                div.id = elId;
-
-                const conduccionCandidatoTxt = candidato
-                    ? formatHoras(candidato.sesiones.filter(function (x) { return x.placa === s.placa; }).reduce(function (a, x) { return a + x.conduccion; }, 0))
-                    : '';
-
-                div.innerHTML =
-                    '<div class="asociar-item-titulo">' + esc(s.placa) + '</div>' +
-                    '<div class="asociar-item-meta">' + (s.inicio ? formatFechaHora(s.inicio) : '') + ' &#8594; ' +
-                        (s.fin ? formatFechaHora(s.fin) : 'EN CURSO') + ' &middot; Conducci&oacute;n: ' + formatHoras(s.conduccion) + '</div>' +
-                    (candidato
-                        ? '<div class="asociar-item-candidato">Candidato sugerido: <b>' + esc(candidato.nombre) + '</b> (condujo esta placa ' + conduccionCandidatoTxt + ' en el periodo)</div>'
-                        : '<div class="asociar-item-candidato">Sin candidato: ning&uacute;n conductor uso esta placa en el periodo consultado.</div>') +
-                    '<div class="asociar-item-botones">' +
-                        (candidato ? '<button class="btn-asociar" onclick="asociarTramo(\'' + elId + '\', \'' + grupoSC.id + '\', ' + JSON.stringify(s.inicio ? s.inicio.getTime() : null) + ', \'' + candidato.id + '\')">Asociar a ' + esc(candidato.nombre) + '</button>' : '') +
-                        '<button class="btn-omitir" onclick="omitirAsociar(\'' + elId + '\')">Dejar como Sin conductor</button>' +
-                    '</div>';
-
-                contenedor.appendChild(div);
-            });
+            contenedor.appendChild(crearItemAsociar(grupoSC));
         });
 
-        if (idx === 0) return Promise.resolve(); // no habia nada pendiente
+        document.getElementById('vista-lista-asociar').style.display = 'block';
+        document.getElementById('vista-resumen-asociar').style.display = 'none';
 
         return new Promise(function (resolve) {
             window._resolverModalAsociar = resolve;
@@ -958,22 +948,203 @@
         });
     }
 
-    function asociarTramo(elId, grupoSCId, inicioMs, conductorDestinoId) {
+    function crearItemAsociar(grupoSC) {
+        const elId = 'asociar-' + grupoSC.id;
+        const sesiones = grupoSC.sesiones;
+        const ordenadas = sesiones.slice().sort(function (a, b) { return (a.inicio || 0) - (b.inicio || 0); });
+        const primera = ordenadas[0], ultima = ordenadas[ordenadas.length - 1];
+        const totalConduccion = sesiones.reduce(function (s, x) { return s + x.conduccion; }, 0);
+        const totalDetenido = sesiones.reduce(function (s, x) { return s + x.detenido; }, 0);
+        const totalDistancia = sesiones.reduce(function (s, x) { return s + x.distancia; }, 0);
+
+        // Candidato sugerido: un conductor que TAMBIEN tenga sesiones en esta misma
+        // placa dentro del periodo consultado (categoria "Con viaje").
+        const candidato = conductoresData.find(function (c) {
+            return (c.placas || []).indexOf(grupoSC.placa) !== -1;
+        });
+        const conduccionCandidatoTxt = candidato
+            ? formatHoras(candidato.sesiones.filter(function (x) { return x.placa === grupoSC.placa; }).reduce(function (a, x) { return a + x.conduccion; }, 0))
+            : '';
+
+        const div = document.createElement('div');
+        div.className = 'asociar-item';
+        div.id = elId;
+
+        div.innerHTML =
+            '<div class="asociar-item-titulo">' + esc(grupoSC.placa) + '</div>' +
+            '<div class="asociar-item-meta">' + sesiones.length + ' tramo' + (sesiones.length !== 1 ? 's' : '') + ' &middot; ' +
+                (primera.inicio ? formatFechaHora(primera.inicio) : '') + ' &#8594; ' +
+                (ultima.fin ? formatFechaHora(ultima.fin) : 'EN CURSO') + '</div>' +
+            '<div class="asociar-item-meta">Conducci&oacute;n: ' + formatHoras(totalConduccion) + ' &middot; Detenido: ' + formatHoras(totalDetenido) + ' &middot; Distancia: ' + totalDistancia.toFixed(1) + ' km</div>' +
+            (candidato
+                ? '<div class="asociar-item-candidato">Candidato sugerido: <b>' + esc(candidato.nombre) + '</b> &mdash; Con viaje (condujo esta placa ' + conduccionCandidatoTxt + ' en el periodo)</div>'
+                : '<div class="asociar-item-candidato">Sin candidato autom&aacute;tico: ning&uacute;n conductor de esta consulta us&oacute; esta placa.</div>') +
+            '<div class="asociar-item-decision" id="decision-' + elId + '"></div>' +
+            '<div class="asociar-item-botones">' +
+                (candidato ? '<button class="btn-asociar" onclick="marcarAsociar(\'' + elId + '\', \'' + grupoSC.id + '\', \'' + candidato.id + '\')">Asociar a ' + esc(candidato.nombre) + '</button>' : '') +
+                '<button class="btn-omitir" onclick="toggleBuscadorAsociar(\'' + elId + '\')">&#128269; Buscar otro conductor</button>' +
+                '<button class="btn-omitir" onclick="marcarOmitir(\'' + elId + '\', \'' + grupoSC.id + '\')">Dejar como Sin conductor</button>' +
+            '</div>' +
+            '<div class="asociar-buscador" id="buscador-' + elId + '" style="display:none;">' +
+                '<input type="text" class="input-ctrl" placeholder="Buscar conductor..." style="width:100%; box-sizing:border-box; margin-top:8px;" oninput="filtrarBuscadorAsociar(\'' + elId + '\', \'' + grupoSC.id + '\', this.value)">' +
+                '<div class="asociar-buscador-lista" id="buscador-lista-' + elId + '"></div>' +
+            '</div>';
+
+        return div;
+    }
+
+    function toggleBuscadorAsociar(elId) {
+        const box = document.getElementById('buscador-' + elId);
+        if (!box) return;
+        const abrir = box.style.display === 'none';
+        box.style.display = abrir ? 'block' : 'none';
+        if (abrir) filtrarBuscadorAsociar(elId, null, '');
+    }
+
+    // Catalogo completo de la empresa (mapaConductoresGlobal, mismos grupos que las
+    // placas) separado en "Con viaje" (aparecen en esta consulta) y "Sin viaje" (el
+    // resto, aunque nunca hayan tenido actividad en el periodo).
+    function filtrarBuscadorAsociar(elId, grupoSCId, texto) {
+        const lista = document.getElementById('buscador-lista-' + elId);
+        if (!lista) return;
+        const t = (texto || '').toUpperCase().trim();
+        const gId = grupoSCId || obtenerGrupoSCIdDesdeEl(elId);
+
+        const idsConViaje = {};
+        conductoresData.forEach(function (c) { idsConViaje[c.id] = true; });
+
+        const conViaje = [], sinViaje = [];
+        Object.keys(mapaConductoresGlobal).forEach(function (id) {
+            const nombre = mapaConductoresGlobal[id];
+            if (t && nombre.toUpperCase().indexOf(t) === -1) return;
+            if (idsConViaje[id]) conViaje.push({ id: id, nombre: nombre });
+            else sinViaje.push({ id: id, nombre: nombre });
+        });
+        conViaje.sort(function (a, b) { return a.nombre.localeCompare(b.nombre); });
+        sinViaje.sort(function (a, b) { return a.nombre.localeCompare(b.nombre); });
+
+        let html = '';
+        if (conViaje.length > 0) {
+            html += '<div class="buscador-grupo-titulo">Con viaje en este periodo</div>';
+            html += conViaje.map(function (d) {
+                return '<div class="buscador-item" onclick="marcarAsociar(\'' + elId + '\', \'' + gId + '\', \'' + d.id + '\')">' + esc(d.nombre) + '</div>';
+            }).join('');
+        }
+        if (sinViaje.length > 0) {
+            html += '<div class="buscador-grupo-titulo">Sin viaje en este periodo</div>';
+            html += sinViaje.map(function (d) {
+                return '<div class="buscador-item" onclick="marcarAsociar(\'' + elId + '\', \'' + gId + '\', \'' + d.id + '\')">' + esc(d.nombre) + '</div>';
+            }).join('');
+        }
+        if (!html) html = '<div class="combo-placa-empty">Sin coincidencias</div>';
+        lista.innerHTML = html;
+    }
+
+    function obtenerGrupoSCIdDesdeEl(elId) {
+        return elId.replace('asociar-', '');
+    }
+
+    // --- Solo MARCAN la decision, no tocan scData/conductoresData todavia ---
+
+    function marcarAsociar(elId, grupoSCId, conductorDestinoId) {
+        const nombre = (conductoresData.find(function (c) { return c.id === conductorDestinoId; }) || {}).nombre
+            || mapaConductoresGlobal[conductorDestinoId] || conductorDestinoId;
+        _decisionesAsociar[grupoSCId] = { accion: 'asociar', conductorId: conductorDestinoId, conductorNombre: nombre };
+        actualizarVistaDecision(elId, grupoSCId);
+        const buscador = document.getElementById('buscador-' + elId);
+        if (buscador) buscador.style.display = 'none';
+    }
+
+    function marcarOmitir(elId, grupoSCId) {
+        _decisionesAsociar[grupoSCId] = { accion: 'omitir' };
+        actualizarVistaDecision(elId, grupoSCId);
+    }
+
+    function actualizarVistaDecision(elId, grupoSCId) {
+        const cont = document.getElementById('decision-' + elId);
+        if (!cont) return;
+        const d = _decisionesAsociar[grupoSCId];
+        if (d.accion === 'asociar') {
+            cont.innerHTML = '<div class="asociar-decision-marca ok">&#10003; Se asociar&aacute; a: <b>' + esc(d.conductorNombre) + '</b></div>';
+        } else {
+            cont.innerHTML = '<div class="asociar-decision-marca neutro">Se dejar&aacute; como Sin conductor</div>';
+        }
+        const el = document.getElementById(elId);
+        if (el) el.classList.add('marcado');
+    }
+
+    function omitirTodoAsociar() {
+        // Atajo: descarta toda asociacion y cierra sin aplicar ningun cambio.
+        _decisionesAsociar = {};
+        cerrarModalAsociar();
+    }
+
+    // --- Resumen y aplicacion real ---
+
+    function verResumenAsociar() {
+        const cont = document.getElementById('resumen-asociar-contenido');
+        cont.innerHTML = '';
+
+        let hayCambios = false;
+        scData.forEach(function (grupoSC) {
+            const d = _decisionesAsociar[grupoSC.id];
+            const fila = document.createElement('div');
+            fila.className = 'resumen-asociar-fila';
+            if (d && d.accion === 'asociar') {
+                hayCambios = true;
+                fila.innerHTML = '<b>' + esc(grupoSC.placa) + '</b> (' + grupoSC.sesiones.length + ' tramos) &#8594; se asociar&aacute; a <b style="color:#1a8f4c;">' + esc(d.conductorNombre) + '</b>';
+            } else {
+                fila.innerHTML = '<b>' + esc(grupoSC.placa) + '</b> (' + grupoSC.sesiones.length + ' tramos) &#8594; <span style="color:#8892a0;">sin cambios (Sin conductor)</span>';
+            }
+            cont.appendChild(fila);
+        });
+
+        if (!hayCambios) {
+            const aviso = document.createElement('p');
+            aviso.style.cssText = 'font-size:12px;color:#8892a0;margin-top:10px;';
+            aviso.innerText = 'No se marc\u00f3 ninguna asociaci\u00f3n. Al aceptar, todo se queda igual.';
+            cont.appendChild(aviso);
+        }
+
+        document.getElementById('vista-lista-asociar').style.display = 'none';
+        document.getElementById('vista-resumen-asociar').style.display = 'block';
+    }
+
+    function volverAListaAsociar() {
+        document.getElementById('vista-lista-asociar').style.display = 'block';
+        document.getElementById('vista-resumen-asociar').style.display = 'none';
+    }
+
+    function aplicarResumenAsociar() {
+        Object.keys(_decisionesAsociar).forEach(function (grupoSCId) {
+            const d = _decisionesAsociar[grupoSCId];
+            if (d.accion === 'asociar') migrarGrupoSCAConductor(grupoSCId, d.conductorId);
+        });
+        cerrarModalAsociar();
+    }
+
+    // Migra TODOS los tramos de esta placa (sin conductor) al conductor elegido. Si el
+    // conductor destino no ten&iacute;a actividad en esta consulta ("sin viaje"), se crea su fila.
+    function migrarGrupoSCAConductor(grupoSCId, conductorDestinoId) {
         const grupoSC = scData.find(function (g) { return g.id === grupoSCId; });
         if (!grupoSC) return;
-        const sesion = grupoSC.sesiones.find(function (s) { return (s.inicio ? s.inicio.getTime() : null) === inicioMs; });
-        if (!sesion || sesion._migrado) return;
 
-        const destino = conductoresData.find(function (c) { return c.id === conductorDestinoId; });
-        if (!destino) return;
+        let destino = conductoresData.find(function (c) { return c.id === conductorDestinoId; });
+        if (!destino) {
+            destino = {
+                id: conductorDestinoId,
+                nombre: mapaConductoresGlobal[conductorDestinoId] || conductorDestinoId,
+                flota: grupoSC.flota,
+                sesiones: [],
+                abierto: false
+            };
+            conductoresData.push(destino);
+        }
 
-        // Migrar: quitar de "sin conductor" y agregar al conductor destino
-        sesion._migrado = true;
-        sesion.sinConductor = false;
-        destino.sesiones.push(sesion);
+        grupoSC.sesiones.forEach(function (s) { s.sinConductor = false; });
+        destino.sesiones = destino.sesiones.concat(grupoSC.sesiones);
         destino.sesiones.sort(function (a, b) { return (a.inicio || 0) - (b.inicio || 0); });
 
-        // Recalcular totales del conductor destino
         destino.totalConduccion = destino.sesiones.reduce(function (s, x) { return s + x.conduccion; }, 0);
         destino.totalDetenido = destino.sesiones.reduce(function (s, x) { return s + x.detenido; }, 0);
         destino.totalRalenti = destino.sesiones.reduce(function (s, x) { return s + x.ralenti; }, 0);
@@ -981,21 +1152,8 @@
         destino.placas = destino.sesiones.map(function (s) { return s.placa; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
         destino.estaActivo = destino.sesiones.some(function (s) { return s.esSinFin; });
 
-        // Quitar del grupo SC; si el grupo queda vacio, se elimina de scData
-        grupoSC.sesiones = grupoSC.sesiones.filter(function (s) { return !s._migrado; });
-        if (grupoSC.sesiones.length === 0) {
-            scData = scData.filter(function (g) { return g.id !== grupoSCId; });
-        }
-
-        const el = document.getElementById(elId);
-        if (el) { el.classList.add('resuelto'); el.innerHTML += '<div style="font-size:11px;font-weight:800;color:#1a8f4c;margin-top:6px;">&#10003; Asociado</div>'; }
-
+        scData = scData.filter(function (g) { return g.id !== grupoSCId; });
         ordenarDatos();
-    }
-
-    function omitirAsociar(elId) {
-        const el = document.getElementById(elId);
-        if (el) { el.classList.add('resuelto'); el.innerHTML += '<div style="font-size:11px;font-weight:800;color:#8892a0;margin-top:6px;">Se deja como Sin conductor</div>'; }
     }
 
     function cerrarModalAsociar() {
