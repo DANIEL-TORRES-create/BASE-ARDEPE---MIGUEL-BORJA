@@ -6,7 +6,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
-    <link rel="stylesheet" href="styles.css?v=10">
+    <link rel="stylesheet" href="styles.css?v=11">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
@@ -16,7 +16,7 @@
         <div class="header">
             <div>
                 <h2 class="title">ARDEPE - Control de Horas de Conducci&oacute;n</h2>
-                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida <span style="color:#c2c9d3; font-size:10px;">(v22)</span></p>
+                <p class="subtitle">Actividad por conductor: conducci&oacute;n, detenci&oacute;n, ralent&iacute; y distancia recorrida</p>
             </div>
             <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
         </div>
@@ -1530,6 +1530,7 @@
 
         const nsesiones = c.sesiones.length;
         const placasTexto = esSC ? c.placa : (c.placas || []).join(', ');
+        const tieneRelevo = !esSC && c.sesiones.some(function (s) { return s.esPosibleRelevo; });
 
         // Formato "PLACA &#8212; Conductor": si el grupo tiene una sola placa se fusiona en
         // el titulo principal; si maneja varias placas, se muestra el nombre y las placas debajo.
@@ -1549,6 +1550,7 @@
             '<td>' +
                 '<span class="expand-icon ' + (c.abierto ? 'abierto' : '') + '">&#9654;</span>' +
                 '<span class="conductor-nombre">' + (esSC ? '&#9888; ' : '') + tituloPrincipal + '</span>' +
+                (tieneRelevo ? '<span class="badge-relevo">&#9888; Posible relevo / Conducci&oacute;n a taller</span>' : '') +
                 '<div class="conductor-meta">' + metaTexto + '</div>' +
             '</td>' +
             '<td>' + badgeFlota + '</td>' +
@@ -1585,7 +1587,6 @@
         tr.innerHTML =
             '<td style="padding-left:36px;">' +
                 '<span style="font-weight:700; color:#002d72;">' + esc(s.placa) + '</span>' +
-                (s.esPosibleRelevo ? '<span class="badge-relevo">&#9888; Posible relevo</span>' : '') +
             '</td>' +
             '<td>' + badgeFlota + '</td>' +
             '<td style="font-size:11.5px;">' + inicioTxt + '</td>' +
