@@ -268,6 +268,14 @@ tbody tr.fila-ronda { cursor: pointer; }
 
 .estado-tabla { text-align: center; padding: 40px 20px !important; color: #8892a0; font-size: 13px; }
 
+.titulo-seccion {
+    color: #002d72;
+    font-size: 14px;
+    font-weight: 800;
+    text-transform: uppercase;
+    margin: 0 0 12px;
+}
+
 .diag-caja {
     display: inline-block;
     margin-top: 16px;
@@ -462,10 +470,10 @@ tbody tr.fila-ronda { cursor: pointer; }
 .side-panel {
     position: fixed;
     top: 0;
+    bottom: 0;
     right: -460px;
     width: 430px;
     max-width: 92vw;
-    height: 100%;
     background: #ffffff;
     box-shadow: -8px 0 30px rgba(0,0,0,.25);
     z-index: 410;
@@ -473,6 +481,7 @@ tbody tr.fila-ronda { cursor: pointer; }
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
+    overflow: hidden;
 }
 .side-panel.open { right: 0; }
 
