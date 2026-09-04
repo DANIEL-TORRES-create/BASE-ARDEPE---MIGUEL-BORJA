@@ -66,6 +66,8 @@
                 <tbody id="diag-crudo-tbody"></tbody>
             </table>
         </div>
+        <div class="diag-crudo-titulo" style="margin-top:14px;">Definici&oacute;n cruda de la regla (Get Rule)</div>
+        <pre id="diag-regla-cruda" class="diag-pre"></pre>
     </div>
 
     <!-- Toolbar -->
@@ -328,6 +330,22 @@ let ejemploTiposZona = [];
 let zoneTypeIdExiste = false;
 let zonasConEseTipoDeMuestra = [];
 
+let diagReglaCruda = null;
+
+// DIAGNOSTICO TEMPORAL: trae la definicion real de la regla (su condicion exacta tal
+// como esta configurada en Geotab), para confirmar que significa activeFrom/duration
+// sin seguir adivinando por patrones de horas.
+async function cargarDiagRegla() {
+    try {
+        const reglas = await geotabApi.call('Get', { typeName: 'Rule', search: { id: RULE_ID } });
+        diagReglaCruda = (reglas && reglas[0]) || null;
+        console.log('[LeadTime] Definicion cruda de la regla:', diagReglaCruda);
+    } catch (e) {
+        console.error('Error cargando definicion de la regla', e);
+        diagReglaCruda = { error: (e && e.message) ? e.message : String(e) };
+    }
+}
+
 async function cargarZonasCD() {
     try {
         const todas = await geotabApi.call('Get', { typeName: 'Zone', search: {}, resultsLimit: 8000 });
@@ -479,6 +497,7 @@ geotab.addin.LeadTimeARDEPE = function (api, state) {
             configurarFechas();
             promesaConductores = cargarConductores();
             promesaZonas = cargarZonasCD();
+            cargarDiagRegla(); // DIAGNOSTICO TEMPORAL
             cargarDispositivosGlobal();
             configurarComboPlaca();
             callback();
@@ -1082,6 +1101,9 @@ function renderizarDiagCrudo() {
             '<td>' + esc(e.ruleName) + '</td>' +
             '</tr>';
     }).join('');
+
+    const regla = document.getElementById('diag-regla-cruda');
+    if (regla) regla.textContent = JSON.stringify(diagReglaCruda, null, 2);
 }
 
 function renderizarPanelLateral() {
