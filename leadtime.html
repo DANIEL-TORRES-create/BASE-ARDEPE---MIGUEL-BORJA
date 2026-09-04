@@ -189,7 +189,7 @@
 // ---------------- Configuracion (unico lugar a editar si cambia algo) ----------------
 
 const RULE_ID = 'aDW9ljhg6lEuypta-ka9g1g'; // regla "(SEVILLANO) LEAD TIME POR CD"
-const ZONE_TYPE_ID = 'b27A8';              // tipo de zona = Centros de Distribucion (CD)
+const ZONE_TYPE_ID = 'b400';               // tipo de zona = Centros de Distribucion (CD)
 const GRUPOS = { LOCAL: 'b2798', PROVINCIA: 'b279A' };
 const PLANTA_NOMBRE = 'PLANTA PUCUSANA';   // punto de anclaje de las rondas (normalizado en mayus)
 const MAX_DIAS = 7;
@@ -311,26 +311,39 @@ async function cargarConductores() {
 let errorZonasCD = null;
 let totalZonasRecibidas = 0;
 let ejemploTiposZona = [];
+let zoneTypeIdExiste = false;
+let zonasConEseTipoDeMuestra = [];
 
 async function cargarZonasCD() {
     try {
         const todas = await geotabApi.call('Get', { typeName: 'Zone', search: {}, resultsLimit: 8000 });
         totalZonasRecibidas = (todas || []).length;
 
-        // Diagnostico: guarda los primeros tipos de zona vistos (para comparar contra el
+        // Diagnostico: guarda TODOS los tipos de zona vistos (para comparar contra el
         // ZONE_TYPE_ID configurado, en caso de que no calce ninguna).
         const tiposVistos = {};
         (todas || []).forEach(function (z) {
             (z.zoneTypes || []).forEach(function (zt) { tiposVistos[zt.id] = zt.name || zt.id; });
         });
         ejemploTiposZona = Object.keys(tiposVistos).map(function (id) { return id + ' (' + tiposVistos[id] + ')'; });
+        zoneTypeIdExiste = Object.prototype.hasOwnProperty.call(tiposVistos, ZONE_TYPE_ID);
 
         zonasCD = (todas || [])
             .filter(function (z) { return z.zoneTypes && z.zoneTypes.some(function (zt) { return zt.id === ZONE_TYPE_ID; }); })
             .map(function (z) { return { id: z.id, name: z.name, points: z.points || [] }; });
+
+        // Diagnostico extra: nombres de las primeras zonas que SI tienen ese groupo/tipo,
+        // buscando tambien por nombre "CD"/"Pucusana" como pista alternativa si el ID no calzo.
+        zonasConEseTipoDeMuestra = (todas || [])
+            .filter(function (z) { return (z.name || '').toUpperCase().indexOf('PUCUSANA') !== -1 || (z.name || '').toUpperCase().indexOf('CDA ') === 0; })
+            .slice(0, 5)
+            .map(function (z) { return z.name + ' -> tipos: [' + (z.zoneTypes || []).map(function (zt) { return zt.id; }).join(', ') + ']'; });
+
         errorZonasCD = null;
         console.log('[LeadTime] Zonas totales recibidas:', totalZonasRecibidas, '- Zonas CD filtradas:', zonasCD.length);
-        console.log('[LeadTime] Tipos de zona vistos en la cuenta:', tiposVistos);
+        console.log('[LeadTime] TODOS los tipos de zona vistos en la cuenta:', tiposVistos);
+        console.log('[LeadTime] ZONE_TYPE_ID configurado (' + ZONE_TYPE_ID + ') existe en la cuenta:', zoneTypeIdExiste);
+        console.log('[LeadTime] Zonas por nombre (Pucusana/CDA) y sus tipos reales:', zonasConEseTipoDeMuestra);
         if (todas && todas[0]) console.log('[LeadTime] Ejemplo de zona cruda:', todas[0]);
     } catch (e) {
         console.error('Error cargando zonas CD', e);
@@ -876,7 +889,9 @@ function mostrarEstadoTabla(mensaje, diagnostico) {
         html += '<div class="diag-caja">' +
             'Zonas CD cargadas: <b>' + zonasCD.length + '</b>' + (errorZonasCD ? ' &mdash; <span style="color:#c0392b;">ERROR: ' + esc(errorZonasCD) + '</span>' : '') + '<br>' +
             'Zonas totales recibidas de la cuenta (sin filtrar): <b>' + totalZonasRecibidas + '</b><br>' +
-            (ejemploTiposZona.length ? 'Tipos de zona vistos: <b>' + esc(ejemploTiposZona.slice(0, 15).join(', ')) + '</b><br>' : '') +
+            '\u00bfEl ID de tipo configurado (' + ZONE_TYPE_ID + ') existe en la cuenta?: <b style="color:' + (zoneTypeIdExiste ? '#1a8f4c' : '#c0392b') + ';">' + (zoneTypeIdExiste ? 'S\u00cd' : 'NO') + '</b><br>' +
+            (ejemploTiposZona.length ? 'TODOS los tipos de zona vistos (' + ejemploTiposZona.length + '): <b>' + esc(ejemploTiposZona.join(', ')) + '</b><br>' : '') +
+            (zonasConEseTipoDeMuestra.length ? 'Zonas "Pucusana/CDA" encontradas por nombre, con sus tipos REALES: <b>' + esc(zonasConEseTipoDeMuestra.join(' | ')) + '</b><br>' : 'No se encontr\u00f3 ninguna zona con "Pucusana" o "CDA" en el nombre.<br>') +
             'Dispositivos consultados: <b>' + diagUltimaConsulta.dispositivosConsultados + '</b> &middot; ' +
             'con eventos: <b>' + diagUltimaConsulta.dispositivosConEventos + '</b><br>' +
             'Total eventos de la regla encontrados: <b>' + diagUltimaConsulta.totalEventos + '</b><br>' +
