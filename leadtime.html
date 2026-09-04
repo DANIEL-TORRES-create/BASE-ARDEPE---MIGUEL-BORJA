@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=1">
+    <link rel="stylesheet" href="leadtime.css?v=2">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -42,32 +42,11 @@
             <span class="kpi-label">Duraci&oacute;n Promedio</span>
             <span class="kpi-value" id="kpi-promedio">--</span>
         </div>
-        <div class="kpi-box bg-red">
-            <span class="kpi-icon">&#9888;</span>
-            <span class="kpi-label">Excedieron Tiempo Esperado</span>
-            <span class="kpi-value" id="kpi-excedidas">--</span>
-        </div>
         <div class="kpi-box bg-teal">
             <span class="kpi-icon">&#128205;</span>
             <span class="kpi-label">CD Mayor Espera Promedio</span>
             <span class="kpi-value kpi-value-text" id="kpi-topcd">--</span>
         </div>
-    </div>
-
-    <!-- DIAGNOSTICO TEMPORAL: datos crudos de la API, sin ningun calculo. Quitar cuando
-         se confirme el formato correcto de fecha/duracion. -->
-    <div id="diag-crudo-wrap" style="display:none; margin-bottom:14px;">
-        <div class="diag-crudo-titulo">&#128295; Diagn&oacute;stico temporal &mdash; datos CRUDOS de la API (sin procesar)</div>
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr><th>Placa</th><th>activeFrom (crudo)</th><th>duration (crudo)</th><th>tipo de dato</th><th>rule.id</th></tr>
-                </thead>
-                <tbody id="diag-crudo-tbody"></tbody>
-            </table>
-        </div>
-        <div class="diag-crudo-titulo" style="margin-top:14px;">Definici&oacute;n cruda de la regla (Get Rule)</div>
-        <pre id="diag-regla-cruda" class="diag-pre"></pre>
     </div>
 
     <!-- Toolbar -->
@@ -132,44 +111,65 @@
         </div>
     </div><!-- /sticky-header -->
 
-    <!-- Cuerpo: tabla principal + panel lateral -->
-    <div class="layout-principal">
+    <!-- Pestanas -->
+    <div class="tabs-bar">
+        <button class="tab-btn active" id="tab-btn-detalle" onclick="cambiarPestana('detalle')">Detalle</button>
+        <button class="tab-btn" id="tab-btn-resumen" onclick="cambiarPestana('resumen')">Resumen por Viaje</button>
+    </div>
 
-        <!-- Tabla de rondas -->
+    <!-- Panel lateral de rankings -->
+    <div class="panel-lateral" id="panel-lateral" style="display:none;">
+        <div class="panel-seccion">
+            <div class="panel-titulo">CDs con m&aacute;s tiempo de espera</div>
+            <div id="ranking-cds"></div>
+        </div>
+        <div class="panel-seccion">
+            <div class="panel-titulo">Viajes m&aacute;s largos</div>
+            <div id="ranking-rondas"></div>
+        </div>
+    </div>
+
+    <!-- PESTANA 1: Detalle (tabla plana, un tramo por fila, como el Excel) -->
+    <div id="vista-detalle" class="vista-tab">
         <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
-                        <th>Placa / Conductor</th>
-                        <th>Flota</th>
-                        <th>Ruta</th>
-                        <th onclick="ordenarPor('salida')" style="cursor:pointer;">Salida Planta</th>
-                        <th>Retorno Planta</th>
-                        <th onclick="ordenarPor('duracion')" style="cursor:pointer;">Duraci&oacute;n Total</th>
-                        <th>Cumplimiento</th>
-                        <th>Estado</th>
+                        <th>Placa</th>
+                        <th>Conductor</th>
+                        <th onclick="ordenarPorDetalle('salida')" style="cursor:pointer;">Fecha y hora de salida</th>
+                        <th>Punto de salida</th>
+                        <th onclick="ordenarPorDetalle('llegada')" style="cursor:pointer;">Fecha y hora de llegada</th>
+                        <th>Punto de llegada</th>
+                        <th>Duraci&oacute;n</th>
                     </tr>
                 </thead>
-                <tbody id="tbody-principal">
-                    <tr><td colspan="8" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
+                <tbody id="tbody-detalle">
+                    <tr><td colspan="7" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
                 </tbody>
             </table>
         </div>
+    </div>
 
-        <!-- Panel lateral de rankings -->
-        <div class="panel-lateral" id="panel-lateral" style="display:none;">
-            <div class="panel-seccion">
-                <div class="panel-titulo">CDs con m&aacute;s tiempo de espera</div>
-                <div id="ranking-cds"></div>
-            </div>
-            <div class="panel-seccion">
-                <div class="panel-titulo">Viajes m&aacute;s largos</div>
-                <div id="ranking-rondas"></div>
-            </div>
-            <div class="panel-seccion">
-                <div class="panel-titulo">Rutas m&aacute;s lentas (promedio)</div>
-                <div id="ranking-rutas"></div>
-            </div>
+    <!-- PESTANA 2: Resumen por Viaje (una fila = Pucusana -> Pucusana, clic abre panel lateral) -->
+    <div id="vista-resumen" class="vista-tab" style="display:none;">
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Placa</th>
+                        <th>Conductor</th>
+                        <th>Flota</th>
+                        <th onclick="ordenarPorResumen('salida')" style="cursor:pointer;">Salida Planta</th>
+                        <th>Retorno Planta</th>
+                        <th onclick="ordenarPorResumen('duracion')" style="cursor:pointer;">Duraci&oacute;n Total</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-resumen">
+                    <tr><td colspan="7" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
 
@@ -180,20 +180,36 @@
         <div class="progreso-bar-wrap"><div class="progreso-bar-fill" id="progreso-bar-fill"></div></div>
     </div>
 
-    <!-- Modal: minimapa de la ronda -->
-    <div class="modal-overlay-generico" id="modal-mapa-overlay" style="display:none;" onclick="if(event.target===this) cerrarModalMapa()">
-        <div class="modal-box-generico modal-box-ancho">
-            <h3 id="modal-mapa-titulo">Ruta del viaje</h3>
-            <div id="mapa-ronda" style="width:100%; height:420px; border-radius:10px; overflow:hidden;"></div>
-            <div class="modal-botones-generico">
-                <button class="btn btn-blue" onclick="cerrarModalMapa()">Cerrar</button>
-            </div>
-        </div>
-    </div>
-
 </div>
 
-<div class="timeline-tooltip" id="timeline-tooltip"></div>
+<!-- Panel lateral deslizable: detalle de un viaje (linea de tiempo vertical) -->
+<div class="side-panel-overlay" id="side-panel-overlay" onclick="cerrarPanelViaje()"></div>
+<div class="side-panel" id="side-panel-viaje">
+    <div class="side-panel-header">
+        <div>
+            <div class="side-panel-label">PLACA</div>
+            <div class="side-panel-placa" id="sp-placa">&#8212;</div>
+        </div>
+        <div class="side-panel-titulo-centro">Resumen del Viaje</div>
+        <button class="btn-close-panel" onclick="cerrarPanelViaje()">&times;</button>
+    </div>
+    <div class="side-panel-meta" id="sp-meta"></div>
+    <div class="side-panel-body" id="sp-timeline"></div>
+    <div class="side-panel-footer">
+        <button class="btn btn-blue" id="sp-btn-mapa" onclick="abrirModalMapaDesdePanel()">&#128506; Ver mapa completo</button>
+    </div>
+</div>
+
+<!-- Modal: minimapa de la ronda -->
+<div class="modal-overlay-generico" id="modal-mapa-overlay" style="display:none;" onclick="if(event.target===this) cerrarModalMapa()">
+    <div class="modal-box-generico modal-box-ancho">
+        <h3 id="modal-mapa-titulo">Ruta del viaje</h3>
+        <div id="mapa-ronda" style="width:100%; height:420px; border-radius:10px; overflow:hidden;"></div>
+        <div class="modal-botones-generico">
+            <button class="btn btn-blue" onclick="cerrarModalMapa()">Cerrar</button>
+        </div>
+    </div>
+</div>
 
 <script>
 /* ==========================================================================
@@ -497,7 +513,7 @@ geotab.addin.LeadTimeARDEPE = function (api, state) {
             configurarFechas();
             promesaConductores = cargarConductores();
             promesaZonas = cargarZonasCD();
-            cargarDiagRegla(); // DIAGNOSTICO TEMPORAL
+            // cargarDiagRegla(); // diagnostico ya no necesario, bug de zoneType resuelto
             cargarDispositivosGlobal();
             configurarComboPlaca();
             callback();
@@ -538,7 +554,7 @@ async function consultar() {
         const dispositivos = await obtenerDispositivos();
         if (dispositivos.length === 0) {
             rondasData = [];
-            renderizarTabla();
+            renderizarVistaActiva();
             actualizarKPIs();
             return;
         }
@@ -561,19 +577,19 @@ async function consultar() {
         actualizarProgreso(dispositivos.length, dispositivos.length, 'Verificando estado en vivo de rondas abiertas...');
         await resolverEstadosEnVivo(todasLasRondas, toDate);
 
-        actualizarProgreso(dispositivos.length, dispositivos.length, 'Calculando cumplimiento y rankings...');
-        await calcularSemaforos(todasLasRondas);
+        actualizarProgreso(dispositivos.length, dispositivos.length, 'Calculando duraciones y rankings...');
+        calcularDuraciones(todasLasRondas);
 
         rondasData = todasLasRondas;
-        ordenarDatos();
-        renderizarTabla();
+        renderizarVistaActiva();
         actualizarKPIs();
         renderizarPanelLateral();
-        renderizarDiagCrudo(); // DIAGNOSTICO TEMPORAL
 
     } catch (e) {
         console.error(e);
-        mostrarEstadoTabla('Error al consultar la API: ' + (e && e.message ? e.message : e));
+        rondasData = [];
+        document.getElementById('tbody-detalle').innerHTML = '<tr><td colspan="7" class="estado-tabla" style="color:#c0392b;">Error al consultar la API: ' + esc(e && e.message ? e.message : String(e)) + '</td></tr>';
+        document.getElementById('tbody-resumen').innerHTML = '<tr><td colspan="7" class="estado-tabla" style="color:#c0392b;">Error al consultar la API: ' + esc(e && e.message ? e.message : String(e)) + '</td></tr>';
     } finally {
         btn.disabled = false;
         btn.innerText = '\uD83D\uDD0D Consultar';
@@ -628,8 +644,43 @@ function logMasCercano(logs, instanteMs) {
     return mejor;
 }
 
+// Distancia en metros entre 2 coordenadas (formula haversine)
+function distanciaMetros(lat1, lon1, lat2, lon2) {
+    if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return Infinity;
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+const FUSION_DISTANCIA_M = 250; // menos de 250m
+const FUSION_TIEMPO_MIN = 30;   // y menos de 30 min de hueco -> se considera "ruido" de GPS
+
+// Fusiona eventos consecutivos que representan el MISMO lugar fisico (rebote del GPS en
+// el borde de la geocerca, o zonas superpuestas), para que no generen paradas/tramos falsos.
+function fusionarEventosRuido(eventosOrdenados) {
+    if (eventosOrdenados.length === 0) return [];
+    const resultado = [Object.assign({}, eventosOrdenados[0])];
+    for (let i = 1; i < eventosOrdenados.length; i++) {
+        const prev = resultado[resultado.length - 1];
+        const actual = eventosOrdenados[i];
+        const gapMin = (actual.inicio - prev.fin) / 60000;
+        const dist = distanciaMetros(prev.lat, prev.lon, actual.lat, actual.lon);
+        const mismoLugar = (prev.zonaNombre === actual.zonaNombre) || (dist < FUSION_DISTANCIA_M);
+        if (mismoLugar && gapMin >= 0 && gapMin < FUSION_TIEMPO_MIN) {
+            prev.fin = actual.fin;
+            if (!prev.driverId && actual.driverId) prev.driverId = actual.driverId;
+        } else {
+            resultado.push(Object.assign({}, actual));
+        }
+    }
+    return resultado;
+}
+
 let diagUltimaConsulta = { dispositivosConsultados: 0, dispositivosConEventos: 0, totalEventos: 0, eventosSinZona: 0, eventosSinGPS: 0 };
-let diagEventosCrudos = []; // DIAGNOSTICO TEMPORAL
+let diagEventosCrudos = [];
 
 async function procesarDispositivo(disp, fromDate, toDate) {
     diagUltimaConsulta.dispositivosConsultados++;
@@ -643,20 +694,9 @@ async function procesarDispositivo(disp, fromDate, toDate) {
     const grupoIds = disp.grupos || [];
     const flota = grupoIds.includes(GRUPOS.LOCAL) ? 'LOCAL' : (grupoIds.includes(GRUPOS.PROVINCIA) ? 'PROVINCIA' : 'OTRO');
 
-    // --- DIAGNOSTICO TEMPORAL: guarda el dato crudo tal cual viene de la API, sin ningun
-    // calculo, para comparar contra el Excel de referencia. Quitar una vez confirmado. ---
-    eventos.forEach(function (ev) {
-        diagEventosCrudos.push({
-            placa: disp.name,
-            activeFrom: ev.activeFrom,
-            duration: ev.duration,
-            durationTipo: typeof ev.duration,
-            ruleName: ev.rule ? ev.rule.id : '(sin rule)'
-        });
-    });
-
     // Resolver cada evento a {inicio, fin, zonaNombre, lat, lon, driverId}
-    const eventosResueltos = eventos.map(function (ev) {
+    // inicio = entrada a la zona (activeFrom); fin = salida real de la zona (activeFrom + duration)
+    let eventosResueltos = eventos.map(function (ev) {
         const inicio = new Date(ev.activeFrom);
         const horas = duracionAHoras(ev.duration);
         const fin = new Date(inicio.getTime() + horas * 3600000);
@@ -676,39 +716,51 @@ async function procesarDispositivo(disp, fromDate, toDate) {
         return ok;
     }).sort(function (a, b) { return a.inicio - b.inicio; });
 
-    console.log('[LeadTime]', disp.name, '- eventos:', eventos.length, '- resueltos a zona:', eventosResueltos.length, '- logs GPS:', logs.length);
-
     if (eventosResueltos.length === 0) return [];
+
+    eventosResueltos = fusionarEventosRuido(eventosResueltos);
+
+    console.log('[LeadTime]', disp.name, '- eventos:', eventos.length, '- paradas finales (post-fusion):', eventosResueltos.length);
 
     return construirRondas(eventosResueltos, disp, flota);
 }
 
-// Agrupa eventos ordenados en rondas: cada visita a Planta Pucusana cierra la ronda
-// anterior (llegada) y abre una nueva (salida = al terminar esa visita a planta).
+// Agrupa las paradas ordenadas en VIAJES: Planta Pucusana (salida) -> CDs visitadas (en
+// orden) -> Planta Pucusana (retorno). Cada parada (incluida Planta) guarda su propia
+// entrada y salida real -- todas se calculan igual: entrada = activeFrom, salida =
+// activeFrom + duration.
 function construirRondas(eventosResueltos, disp, flota) {
     const rondas = [];
     let actual = null;
 
     eventosResueltos.forEach(function (ev) {
+        const parada = { zona: ev.zonaNombre, entrada: ev.inicio, salida: ev.fin, lat: ev.lat, lon: ev.lon, driverId: ev.driverId };
+
         if (esPlanta(ev.zonaNombre)) {
             if (actual) {
-                actual.retorno = ev.inicio;
+                actual.paradas.push(parada);
+                actual.retorno = parada.entrada;
                 actual.cerrada = true;
                 rondas.push(actual);
             }
-            actual = { disp: disp, flota: flota, salida: ev.fin, retorno: null, cds: [], cerrada: false, sinSalidaConocida: false, driverId: ev.driverId };
+            actual = { disp: disp, flota: flota, driverId: ev.driverId, paradas: [parada], salida: parada.salida, retorno: null, cerrada: false, sinSalidaConocida: false };
         } else {
             if (!actual) {
-                actual = { disp: disp, flota: flota, salida: null, retorno: null, cds: [], cerrada: false, sinSalidaConocida: true, driverId: ev.driverId };
+                actual = { disp: disp, flota: flota, driverId: ev.driverId, paradas: [], salida: null, retorno: null, cerrada: false, sinSalidaConocida: true };
             }
-            actual.cds.push(ev);
+            actual.paradas.push(parada);
             if (!actual.driverId) actual.driverId = ev.driverId;
         }
     });
-    if (actual && (actual.cds.length > 0 || actual.salida)) rondas.push(actual);
+    if (actual && actual.paradas.length > 0) rondas.push(actual);
+
+    rondas.forEach(function (r) {
+        r.cds = r.paradas.filter(function (p) { return !esPlanta(p.zona); });
+    });
 
     return rondas;
 }
+
 
 // ---------------- Estado en vivo para rondas abiertas ----------------
 // Solo se consulta si el filtro "Fin" llega al presente. Distingue 3 estados:
@@ -768,132 +820,75 @@ async function resolverEstadosEnVivo(rondas, toDate) {
     });
 }
 
-// ---------------- Semaforo de cumplimiento (promedio historico via localStorage) ----------------
-// El promedio se acumula por "firma de ruta" (CDs intermedias en orden, sin contar Planta),
-// persistido en este navegador. Cada consulta lee el historico ANTES de sumar la ronda
-// actual, para comparar limpio, y luego lo actualiza.
+// ---------------- Duracion total y firma de ruta (sin semaforo por ahora) ----------------
 
 function firmaRuta(ronda) {
-    return ronda.cds.map(function (c) { return c.zonaNombre.trim().toUpperCase(); }).join(' \u2192 ');
+    return ronda.cds.map(function (c) { return c.zona.trim().toUpperCase(); }).join(' \u2192 ');
 }
 
-function leerHistoricoRutas() {
-    try {
-        const raw = localStorage.getItem(HIST_STORAGE_KEY);
-        return raw ? JSON.parse(raw) : {};
-    } catch (e) { return {}; }
-}
-
-function guardarHistoricoRutas(hist) {
-    try { localStorage.setItem(HIST_STORAGE_KEY, JSON.stringify(hist)); } catch (e) {}
-}
-
-async function calcularSemaforos(rondas) {
-    const hist = leerHistoricoRutas();
-
+function calcularDuraciones(rondas) {
     rondas.forEach(function (r) {
-        if (r.cds.length === 0) { r.semaforo = 'GRIS'; r.duracionHoras = 0; return; }
-
-        const firma = firmaRuta(r);
-        r.firma = firma;
-
-        if (!r.cerrada) {
-            // Ronda en curso: no tiene duracion total definitiva, no se compara aun.
-            r.semaforo = 'GRIS';
-            return;
-        }
-
+        r.firma = firmaRuta(r);
+        if (!r.cerrada) { r.duracionHoras = 0; return; }
         // Si la ronda es "incompleta" (no se vio la salida real de Planta dentro del
-        // filtro), se usa el primer evento conocido como inicio aproximado -- la duracion
-        // en ese caso es un minimo, no el tiempo real completo.
-        const inicioParaCalculo = r.salida || (r.cds[0] && r.cds[0].inicio);
-        const duracionHoras = inicioParaCalculo ? (r.retorno - inicioParaCalculo) / 3600000 : 0;
-        r.duracionHoras = duracionHoras;
-
-        const ref = hist[firma];
-        if (!ref || ref.cantidad === 0) {
-            r.semaforo = 'GRIS';
-            r.esperadoHoras = null;
-        } else {
-            const esperado = ref.suma / ref.cantidad;
-            r.esperadoHoras = esperado;
-            if (duracionHoras <= esperado * 1.1) r.semaforo = 'VERDE';
-            else if (duracionHoras <= esperado * 1.3) r.semaforo = 'AMARILLO';
-            else r.semaforo = 'ROJO';
-        }
-
-        if (!hist[firma]) hist[firma] = { suma: 0, cantidad: 0 };
-        hist[firma].suma += duracionHoras;
-        hist[firma].cantidad += 1;
+        // filtro), se usa la primera parada conocida como inicio aproximado -- la
+        // duracion en ese caso es un minimo, no el tiempo real completo.
+        const inicioParaCalculo = r.salida || (r.paradas[0] && r.paradas[0].entrada);
+        r.duracionHoras = inicioParaCalculo ? (r.retorno - inicioParaCalculo) / 3600000 : 0;
     });
-
-    guardarHistoricoRutas(hist);
 }
+
 
 // ---------------- Estado textual de una ronda (usado en tabla y export) ----------------
 
 function calcularEstado(r) {
-    if (r.cerrada) return { clase: 'badge-terminado', texto: 'TERMINADO' };
+    if (r.cerrada) return { clase: 'badge-terminado', texto: 'Completado' };
 
-    if (r.estadoVivo === 'EN_RUTA') return { clase: 'badge-enruta', texto: 'EN RUTA' };
+    if (r.estadoVivo === 'EN_RUTA') return { clase: 'badge-enruta', texto: 'En ruta' };
     if (r.estadoVivo === 'EN_CD') {
         const extra = r.duracionEstadoVivo ? ' (hace ' + formatHoras(r.duracionEstadoVivo) + ')' : '';
-        return { clase: 'badge-encd', texto: 'EN CD: ' + r.cdActualVivo + extra };
+        return { clase: 'badge-encd', texto: 'En ' + r.cdActualVivo + extra };
     }
     if (r.estadoVivo === 'DETENIDO_EN_RUTA') {
         const extra = r.duracionEstadoVivo ? ' (hace ' + formatHoras(r.duracionEstadoVivo) + ')' : '';
-        return { clase: 'badge-detenido-ruta', texto: 'DETENIDO EN RUTA' + extra };
+        return { clase: 'badge-detenido-ruta', texto: 'Detenido en ruta' + extra };
     }
     if (r.corteHistorico) {
         const horaCorte = r.corteHistorico.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
-        const ultimaCD = r.cds.length ? r.cds[r.cds.length - 1].zonaNombre : null;
+        const ultimaCD = r.cds.length ? r.cds[r.cds.length - 1].zona : null;
         return ultimaCD
-            ? { clase: 'badge-historico', texto: 'EN CD: ' + ultimaCD + ' (seg\u00fan corte del filtro, ' + horaCorte + ')' }
-            : { clase: 'badge-historico', texto: 'SIN RETORNO AL CORTE (' + horaCorte + ')' };
+            ? { clase: 'badge-historico', texto: 'En ' + ultimaCD + ' (seg\u00fan corte del filtro, ' + horaCorte + ')' }
+            : { clase: 'badge-historico', texto: 'Sin retorno al corte (' + horaCorte + ')' };
     }
-    return { clase: 'badge-historico', texto: 'DESCONOCIDO' };
+    return { clase: 'badge-historico', texto: 'Desconocido' };
 }
 
 // ---------------- Linea de tiempo visual ----------------
 
-function construirSegmentosTimeline(r) {
-    const segmentos = [];
-    const inicioRef = r.salida || (r.cds[0] && r.cds[0].inicio) || null;
-    if (!inicioRef) return segmentos;
+// ---------------- Estado global de pestanas y orden ----------------
 
-    let cursor = inicioRef;
-    r.cds.forEach(function (c) {
-        if (c.inicio > cursor) segmentos.push({ tipo: 'ruta', horas: (c.inicio - cursor) / 3600000 });
-        segmentos.push({ tipo: 'cd', horas: (c.fin - c.inicio) / 3600000, nombre: c.zonaNombre });
-        cursor = c.fin;
-    });
-    if (r.retorno && r.retorno > cursor) segmentos.push({ tipo: 'ruta', horas: (r.retorno - cursor) / 3600000 });
-    return segmentos;
+let pestanaActiva = 'detalle';
+let claveOrdenDetalle = 'salida';
+let ordenAscDetalle = false;
+let claveOrdenResumen = 'salida';
+let ordenAscResumen = false;
+let rondasFiltradasActuales = []; // lista actualmente mostrada en la pestana Resumen (para el panel lateral)
+let panelViajeIdxActual = -1;
+
+function cambiarPestana(nombre) {
+    pestanaActiva = nombre;
+    document.getElementById('tab-btn-detalle').classList.toggle('active', nombre === 'detalle');
+    document.getElementById('tab-btn-resumen').classList.toggle('active', nombre === 'resumen');
+    document.getElementById('vista-detalle').style.display = nombre === 'detalle' ? 'block' : 'none';
+    document.getElementById('vista-resumen').style.display = nombre === 'resumen' ? 'block' : 'none';
+    renderizarVistaActiva();
 }
 
-function construirTimelineHTML(r) {
-    const segmentos = construirSegmentosTimeline(r);
-    if (segmentos.length === 0) return '<span style="font-size:11px;color:#9aa4b2;">Sin datos</span>';
-    const total = segmentos.reduce(function (s, x) { return s + x.horas; }, 0) || 1;
-    const partes = segmentos.map(function (s) {
-        const pct = Math.max(2, (s.horas / total) * 100);
-        const clase = s.tipo === 'cd' ? 'encd' : 'conduccion';
-        const label = s.tipo === 'cd' ? (s.nombre + ': ' + formatHoras(s.horas)) : ('En ruta: ' + formatHoras(s.horas));
-        return '<div class="timeline-seg ' + clase + '" style="width:' + pct.toFixed(1) + '%" data-tip="' + esc(label) + '" onmousemove="mostrarTooltipTimeline(event,this)" onmouseleave="ocultarTooltipTimeline()"></div>';
-    }).join('');
-    return '<div class="timeline-ronda" onclick="event.stopPropagation();">' + partes + '</div>';
+function renderizarVistaActiva() {
+    if (pestanaActiva === 'detalle') renderizarDetalle(); else renderizarResumen();
 }
 
-function mostrarTooltipTimeline(e, el) {
-    const tip = document.getElementById('timeline-tooltip');
-    tip.textContent = el.getAttribute('data-tip');
-    tip.style.left = (e.clientX + 12) + 'px';
-    tip.style.top = (e.clientY + 12) + 'px';
-    tip.style.display = 'block';
-}
-function ocultarTooltipTimeline() { document.getElementById('timeline-tooltip').style.display = 'none'; }
-
-// ---------------- Filtros y orden ----------------
+// ---------------- Filtros (comunes a ambas pestanas) ----------------
 
 function filtrarDatos(lista) {
     const fFlota = document.getElementById('filtro-flota').value;
@@ -911,71 +906,81 @@ function filtrarDatos(lista) {
     });
 }
 
-function ordenarPor(clave) {
-    if (claveOrden === clave) ordenAsc = !ordenAsc; else { claveOrden = clave; ordenAsc = false; }
-    ordenarDatos();
-    renderizarTabla();
-}
+function filtrosCambiaron() { renderizarVistaActiva(); actualizarKPIs(); renderizarPanelLateral(); }
 
-function ordenarDatos() {
-    rondasData.sort(function (a, b) {
-        let va, vb;
-        if (claveOrden === 'duracion') { va = a.duracionHoras || 0; vb = b.duracionHoras || 0; }
-        else { va = a.salida || a.cds[0].inicio; vb = b.salida || b.cds[0].inicio; }
-        const cmp = va > vb ? 1 : (va < vb ? -1 : 0);
-        return ordenAsc ? cmp : -cmp;
-    });
-}
-
-function filtrosCambiaron() { renderizarTabla(); actualizarKPIs(); renderizarPanelLateral(); }
-
-// ---------------- Renderizado de la tabla ----------------
-
-function mostrarEstadoTabla(mensaje, diagnostico) {
-    let html = '<tr><td colspan="8" class="estado-tabla">' + esc(mensaje);
+function mostrarEstadoVacio(tbodyId, colspan, mensaje, diagnostico) {
+    let html = '<tr><td colspan="' + colspan + '" class="estado-tabla">' + esc(mensaje);
     if (diagnostico) {
         html += '<div class="diag-caja">' +
-            'Zonas CD cargadas: <b>' + zonasCD.length + '</b>' + (errorZonasCD ? ' &mdash; <span style="color:#c0392b;">ERROR: ' + esc(errorZonasCD) + '</span>' : '') + '<br>' +
-            'Zonas totales recibidas de la cuenta (sin filtrar): <b>' + totalZonasRecibidas + '</b><br>' +
-            '\u00bfEl ID de tipo configurado (' + ZONE_TYPE_ID + ') existe en la cuenta?: <b style="color:' + (zoneTypeIdExiste ? '#1a8f4c' : '#c0392b') + ';">' + (zoneTypeIdExiste ? 'S\u00cd' : 'NO') + '</b><br>' +
-            (ejemploTiposZona.length ? 'TODOS los tipos de zona vistos (' + ejemploTiposZona.length + '): <b>' + esc(ejemploTiposZona.join(', ')) + '</b><br>' : '') +
-            (zonasConEseTipoDeMuestra.length ? 'Zonas "Pucusana/CDA" encontradas por nombre, con sus tipos REALES: <b>' + esc(zonasConEseTipoDeMuestra.join(' | ')) + '</b><br>' : 'No se encontr\u00f3 ninguna zona con "Pucusana" o "CDA" en el nombre.<br>') +
+            'Zonas CD cargadas: <b>' + zonasCD.length + '</b>' + (typeof errorZonasCD !== 'undefined' && errorZonasCD ? ' &mdash; <span style="color:#c0392b;">ERROR: ' + esc(errorZonasCD) + '</span>' : '') + '<br>' +
             'Dispositivos consultados: <b>' + diagUltimaConsulta.dispositivosConsultados + '</b> &middot; ' +
             'con eventos: <b>' + diagUltimaConsulta.dispositivosConEventos + '</b><br>' +
             'Total eventos de la regla encontrados: <b>' + diagUltimaConsulta.totalEventos + '</b><br>' +
-            'Eventos sin punto GPS cercano: <b>' + diagUltimaConsulta.eventosSinGPS + '</b><br>' +
             'Eventos que no cayeron dentro de ninguna zona CD: <b>' + diagUltimaConsulta.eventosSinZona + '</b>' +
             '</div>';
     }
     html += '</td></tr>';
-    document.getElementById('tbody-principal').innerHTML = html;
+    document.getElementById(tbodyId).innerHTML = html;
 }
 
-function renderizarTabla() {
-    const tbody = document.getElementById('tbody-principal');
-    const lista = filtrarDatos(rondasData);
+// ---------------- PESTANA 1: Detalle (tabla plana, 1 tramo por fila) ----------------
 
-    if (lista.length === 0) {
-        mostrarEstadoTabla('No hay viajes para los filtros aplicados.', true);
+// Aplana TODAS las rondas en tramos individuales (parada[i] -> parada[i+1]), incluyendo
+// los tramos Planta->CD y CD->Planta -- exactamente el mismo formato que el Excel de origen.
+function construirTramosPlanos(rondasFiltradas) {
+    const tramos = [];
+    rondasFiltradas.forEach(function (r) {
+        for (let i = 0; i < r.paradas.length - 1; i++) {
+            const a = r.paradas[i], b = r.paradas[i + 1];
+            if (!a.salida || !b.entrada) continue;
+            tramos.push({
+                disp: r.disp, driverId: r.driverId,
+                salida: a.salida, puntoSalida: a.zona,
+                llegada: b.entrada, puntoLlegada: b.zona,
+                duracionHoras: (b.entrada - a.salida) / 3600000
+            });
+        }
+    });
+    return tramos;
+}
+
+function ordenarPorDetalle(clave) {
+    if (claveOrdenDetalle === clave) ordenAscDetalle = !ordenAscDetalle; else { claveOrdenDetalle = clave; ordenAscDetalle = false; }
+    renderizarDetalle();
+}
+
+function renderizarDetalle() {
+    const lista = filtrarDatos(rondasData);
+    let tramos = construirTramosPlanos(lista);
+
+    if (tramos.length === 0) {
+        mostrarEstadoVacio('tbody-detalle', 7, 'No hay tramos para los filtros aplicados.', true);
         return;
     }
 
-    asignarNumeroDeViaje(lista);
-
-    tbody.innerHTML = '';
-    lista.forEach(function (r, idx) {
-        const trRonda = crearFilaRonda(r, idx);
-        tbody.appendChild(trRonda);
-        tbody.appendChild(crearFilaTimeline(r));
-        if (r.abierto) {
-            r.cds.forEach(function (c) { tbody.appendChild(crearFilaTramo(c)); });
-        }
+    tramos.sort(function (a, b) {
+        const va = claveOrdenDetalle === 'llegada' ? a.llegada : a.salida;
+        const vb = claveOrdenDetalle === 'llegada' ? b.llegada : b.salida;
+        const cmp = va > vb ? 1 : (va < vb ? -1 : 0);
+        return ordenAscDetalle ? cmp : -cmp;
     });
+
+    document.getElementById('tbody-detalle').innerHTML = tramos.map(function (t) {
+        const nombre = mapaConductoresGlobal[t.driverId] || (t.driverId || 'SIN CONDUCTOR');
+        return '<tr>' +
+            '<td class="celda-placa">' + esc(t.disp.name) + '</td>' +
+            '<td>' + esc(nombre) + '</td>' +
+            '<td style="font-size:11.5px;">' + formatFechaHora(t.salida) + '</td>' +
+            '<td>' + esc(t.puntoSalida) + '</td>' +
+            '<td style="font-size:11.5px;">' + formatFechaHora(t.llegada) + '</td>' +
+            '<td>' + esc(t.puntoLlegada) + '</td>' +
+            '<td style="font-weight:700;">' + formatHoras(t.duracionHoras) + '</td>' +
+            '</tr>';
+    }).join('');
 }
 
-// Si una misma placa tuvo mas de un viaje dentro de lo que se esta mostrando, se numeran
-// cronologicamente (Viaje 1, Viaje 2...) para diferenciarlos. Si solo tuvo uno, no hace
-// falta numerarlo.
+// ---------------- PESTANA 2: Resumen por Viaje (1 fila = Planta -> Planta) ----------------
+
 function asignarNumeroDeViaje(lista) {
     const porPlaca = {};
     lista.forEach(function (r) {
@@ -986,68 +991,112 @@ function asignarNumeroDeViaje(lista) {
     Object.keys(porPlaca).forEach(function (key) {
         const viajes = porPlaca[key];
         if (viajes.length <= 1) { viajes.forEach(function (r) { r.numeroViaje = null; }); return; }
-        viajes.sort(function (a, b) { return (a.salida || (a.cds[0] && a.cds[0].inicio) || 0) - (b.salida || (b.cds[0] && b.cds[0].inicio) || 0); });
+        viajes.sort(function (a, b) { return (a.salida || (a.paradas[0] && a.paradas[0].entrada) || 0) - (b.salida || (b.paradas[0] && b.paradas[0].entrada) || 0); });
         viajes.forEach(function (r, i) { r.numeroViaje = i + 1; });
     });
 }
 
-function crearFilaRonda(r, idx) {
-    const tr = document.createElement('tr');
-    tr.className = 'fila-ronda';
-    tr.onclick = function () { r.abierto = !r.abierto; renderizarTabla(); };
+function ordenarPorResumen(clave) {
+    if (claveOrdenResumen === clave) ordenAscResumen = !ordenAscResumen; else { claveOrdenResumen = clave; ordenAscResumen = false; }
+    renderizarResumen();
+}
 
-    const badgeFlota = r.flota === 'LOCAL' ? '<span class="badge badge-local">LOCAL</span>' : '<span class="badge badge-provincia">PROVINCIA</span>';
-    const nombreConductor = mapaConductoresGlobal[r.driverId] || (r.driverId ? r.driverId : 'SIN CONDUCTOR');
+function renderizarResumen() {
+    let lista = filtrarDatos(rondasData);
 
-    const ruta = r.sinSalidaConocida
-        ? '<span style="color:#c0392b;">Viaje incompleto &mdash; inicio no visible en el filtro</span>'
-        : (r.cds.length ? esc(r.cds.map(function (c) { return c.zonaNombre; }).join(' \u2192 ')) : '<span style="color:#9aa4b2;">Directo (sin CDs)</span>');
-    const botonMapa = r.cds.length ? '<button class="btn-mapa-mini" onclick="event.stopPropagation(); abrirModalMapa(' + idx + ')">&#128506; Mapa</button>' : '';
+    if (lista.length === 0) {
+        mostrarEstadoVacio('tbody-resumen', 7, 'No hay viajes para los filtros aplicados.', true);
+        rondasFiltradasActuales = [];
+        return;
+    }
 
+    asignarNumeroDeViaje(lista);
+
+    lista = lista.slice().sort(function (a, b) {
+        let va, vb;
+        if (claveOrdenResumen === 'duracion') { va = a.duracionHoras || 0; vb = b.duracionHoras || 0; }
+        else { va = a.salida || (a.paradas[0] && a.paradas[0].entrada) || 0; vb = b.salida || (b.paradas[0] && b.paradas[0].entrada) || 0; }
+        const cmp = va > vb ? 1 : (va < vb ? -1 : 0);
+        return ordenAscResumen ? cmp : -cmp;
+    });
+
+    rondasFiltradasActuales = lista;
+
+    document.getElementById('tbody-resumen').innerHTML = lista.map(function (r, idx) {
+        const nombre = mapaConductoresGlobal[r.driverId] || (r.driverId || 'SIN CONDUCTOR');
+        const badgeFlota = r.flota === 'LOCAL' ? '<span class="badge badge-local">LOCAL</span>' : '<span class="badge badge-provincia">PROVINCIA</span>';
+        const estado = calcularEstado(r);
+        const salidaTxt = r.salida ? formatFechaHora(r.salida) : '<span style="color:#9aa4b2;">&#8212;</span>';
+        const retornoTxt = r.retorno ? formatFechaHora(r.retorno) : '<span style="color:#9aa4b2;">&#8212;</span>';
+        const duracionTxt = r.cerrada
+            ? (formatHoras(r.duracionHoras) + (r.sinSalidaConocida ? ' <span title="Salida real fuera del filtro: es un minimo, no el tiempo total real" style="color:#c0392b;">*</span>' : ''))
+            : '<span style="color:#9aa4b2;">&#8212;</span>';
+
+        return '<tr class="fila-resumen" onclick="abrirPanelViaje(' + idx + ')">' +
+            '<td class="celda-placa">' + esc(r.disp.name) + (r.numeroViaje ? ' <span class="badge-viaje-numero">Viaje ' + r.numeroViaje + '</span>' : '') + '</td>' +
+            '<td>' + esc(nombre) + '</td>' +
+            '<td>' + badgeFlota + '</td>' +
+            '<td style="font-size:11.5px;">' + salidaTxt + '</td>' +
+            '<td style="font-size:11.5px;">' + retornoTxt + '</td>' +
+            '<td style="font-weight:700;">' + duracionTxt + '</td>' +
+            '<td><span class="badge ' + estado.clase + '">' + esc(estado.texto) + '</span></td>' +
+            '</tr>';
+    }).join('');
+}
+
+// ---------------- Panel lateral: detalle de un viaje (linea de tiempo vertical) ----------------
+
+function abrirPanelViaje(idx) {
+    const r = rondasFiltradasActuales[idx];
+    if (!r) return;
+    panelViajeIdxActual = idx;
+
+    document.getElementById('sp-placa').innerText = r.disp.name;
+    const nombre = mapaConductoresGlobal[r.driverId] || (r.driverId || 'SIN CONDUCTOR');
     const estado = calcularEstado(r);
-    const salidaTxt = r.salida ? formatFechaHora(r.salida) : '<span style="color:#9aa4b2;">&#8212;</span>';
-    const retornoTxt = r.retorno ? formatFechaHora(r.retorno) : '<span style="color:#9aa4b2;">&#8212;</span>';
-    const duracionTxt = r.cerrada
-        ? (formatHoras(r.duracionHoras) + (r.sinSalidaConocida ? ' <span title="Salida real fuera del filtro: este es un minimo, no el tiempo total real" style="color:#c0392b;">*</span>' : ''))
-        : '<span style="color:#9aa4b2;">&#8212;</span>';
 
-    let semaforoHTML;
-    if (r.semaforo === 'VERDE') semaforoHTML = '<div class="semaforo semaforo-verde"><span class="semaforo-dot"></span><span class="semaforo-texto">Dentro de lo esperado</span></div>';
-    else if (r.semaforo === 'AMARILLO') semaforoHTML = '<div class="semaforo semaforo-amarillo"><span class="semaforo-dot"></span><span class="semaforo-texto">Cerca del l\u00edmite</span></div>';
-    else if (r.semaforo === 'ROJO') semaforoHTML = '<div class="semaforo semaforo-rojo"><span class="semaforo-dot"></span><span class="semaforo-texto">Excede lo esperado' + (r.esperadoHoras ? ' (~' + formatHoras(r.esperadoHoras) + ')' : '') + '</span></div>';
-    else semaforoHTML = '<div class="semaforo semaforo-gris"><span class="semaforo-dot"></span><span class="semaforo-texto">Sin referencia a\u00fan</span></div>';
+    document.getElementById('sp-meta').innerHTML =
+        '<div class="sp-meta-fila"><span>Conductor</span><b>' + esc(nombre) + '</b></div>' +
+        '<div class="sp-meta-fila"><span>Flota</span><b>' + esc(r.flota) + '</b></div>' +
+        '<div class="sp-meta-fila"><span>Duración total</span><b>' + (r.cerrada ? formatHoras(r.duracionHoras) : '—') + '</b></div>' +
+        '<div class="sp-meta-fila"><span>Estado</span><span class="badge ' + estado.clase + '">' + esc(estado.texto) + '</span></div>';
 
-    tr.innerHTML =
-        '<td><span class="expand-icon ' + (r.abierto ? 'abierto' : '') + '">&#9654;</span><span class="ronda-placa">' + esc(r.disp.name) + (r.numeroViaje ? ' <span class="badge-viaje-numero">Viaje ' + r.numeroViaje + '</span>' : '') + '</span><div class="ronda-meta">' + esc(nombreConductor) + '</div></td>' +
-        '<td>' + badgeFlota + '</td>' +
-        '<td>' + ruta + botonMapa + '</td>' +
-        '<td style="font-size:11.5px;">' + salidaTxt + '</td>' +
-        '<td style="font-size:11.5px;">' + retornoTxt + '</td>' +
-        '<td style="font-weight:700;">' + duracionTxt + '</td>' +
-        '<td>' + semaforoHTML + '</td>' +
-        '<td><span class="badge ' + estado.clase + '">' + esc(estado.texto) + '</span></td>';
+    document.getElementById('sp-timeline').innerHTML = construirTimelineVertical(r);
 
-    return tr;
+    const hayCoords = r.paradas.some(function (p) { return p.lat != null; });
+    document.getElementById('sp-btn-mapa').style.display = hayCoords ? 'block' : 'none';
+
+    document.getElementById('side-panel-viaje').classList.add('open');
+    document.getElementById('side-panel-overlay').classList.add('open');
 }
 
-function crearFilaTimeline(r) {
-    const tr = document.createElement('tr');
-    tr.className = 'fila-timeline';
-    tr.innerHTML = '<td colspan="8" style="padding-top:0; padding-bottom:12px;">' + construirTimelineHTML(r) + '</td>';
-    return tr;
+function cerrarPanelViaje() {
+    document.getElementById('side-panel-viaje').classList.remove('open');
+    document.getElementById('side-panel-overlay').classList.remove('open');
 }
 
-function crearFilaTramo(c) {
-    const tr = document.createElement('tr');
-    tr.className = 'fila-tramo';
-    const duracion = (c.fin - c.inicio) / 3600000;
-    tr.innerHTML =
-        '<td colspan="8">' +
-            '<span class="tramo-punto">' + esc(c.zonaNombre) + '</span>' +
-            '<span style="color:#8892a0; margin-left:10px;">' + formatFechaHora(c.inicio) + ' \u2192 ' + formatFechaHora(c.fin) + '</span>' +
-            '<span style="font-weight:700; color:#002d72; margin-left:10px;">' + formatHoras(duracion) + '</span>' +
-        '</td>';
-    return tr;
+function construirTimelineVertical(r) {
+    return r.paradas.map(function (p, i) {
+        const esInicio = i === 0;
+        const esUltima = i === r.paradas.length - 1;
+        const esFinReal = esUltima && r.cerrada;
+        const claseNodo = esInicio ? 'tl-nodo-inicio' : (esFinReal ? 'tl-nodo-fin' : 'tl-nodo-cd');
+
+        let cuerpo = '<div class="tl-punto">' + esc(p.zona) + '</div>' +
+            '<div class="tl-horas">Entrada: <b>' + formatFechaHora(p.entrada) + '</b></div>';
+
+        if (!esFinReal) {
+            const salidaTxt = p.salida ? formatFechaHora(p.salida) : '<span style="color:#9aa4b2;">&#8212;</span>';
+            cuerpo += '<div class="tl-horas">Salida: <b>' + salidaTxt + '</b></div>';
+            if (p.salida) cuerpo += '<div class="tl-dur">Detenido aquí: ' + formatHoras((p.salida - p.entrada) / 3600000) + '</div>';
+        }
+
+        return '<div class="tl-item">' +
+            '<div class="tl-nodo ' + claseNodo + '"></div>' +
+            (i < r.paradas.length - 1 ? '<div class="tl-linea"></div>' : '') +
+            '<div class="tl-card">' + cuerpo + '</div>' +
+        '</div>';
+    }).join('');
 }
 
 // ---------------- KPIs ----------------
@@ -1058,15 +1107,13 @@ function actualizarKPIs() {
     const enCurso = lista.filter(function (r) { return !r.cerrada; });
 
     const promedio = cerradas.length ? cerradas.reduce(function (s, r) { return s + r.duracionHoras; }, 0) / cerradas.length : 0;
-    const excedidas = lista.filter(function (r) { return r.semaforo === 'ROJO'; }).length;
 
     const mapaCD = {};
     lista.forEach(function (r) {
         r.cds.forEach(function (c) {
-            const key = c.zonaNombre;
+            const key = c.zona;
             if (!mapaCD[key]) mapaCD[key] = { suma: 0, cantidad: 0 };
-            mapaCD[key].suma += (c.fin - c.inicio) / 3600000;
-            mapaCD[key].cantidad += 1;
+            if (c.salida) { mapaCD[key].suma += (c.salida - c.entrada) / 3600000; mapaCD[key].cantidad += 1; }
         });
     });
     let topCD = '--';
@@ -1079,71 +1126,35 @@ function actualizarKPIs() {
     document.getElementById('kpi-terminadas').innerText = cerradas.length;
     document.getElementById('kpi-encurso').innerText = enCurso.length;
     document.getElementById('kpi-promedio').innerText = cerradas.length ? formatHoras(promedio) : '--';
-    document.getElementById('kpi-excedidas').innerText = excedidas;
     document.getElementById('kpi-topcd').innerText = topCD;
 }
 
-// ---------------- Panel lateral (rankings) ----------------
-
-// DIAGNOSTICO TEMPORAL: pinta la tabla de datos crudos de la API sin procesar.
-function renderizarDiagCrudo() {
-    const wrap = document.getElementById('diag-crudo-wrap');
-    const tbody = document.getElementById('diag-crudo-tbody');
-    if (diagEventosCrudos.length === 0) { wrap.style.display = 'none'; return; }
-
-    wrap.style.display = 'block';
-    tbody.innerHTML = diagEventosCrudos.map(function (e) {
-        return '<tr>' +
-            '<td>' + esc(e.placa) + '</td>' +
-            '<td>' + esc(e.activeFrom) + '</td>' +
-            '<td>' + esc(JSON.stringify(e.duration)) + '</td>' +
-            '<td>' + esc(e.durationTipo) + '</td>' +
-            '<td>' + esc(e.ruleName) + '</td>' +
-            '</tr>';
-    }).join('');
-
-    const regla = document.getElementById('diag-regla-cruda');
-    if (regla) regla.textContent = JSON.stringify(diagReglaCruda, null, 2);
-}
+// ---------------- Panel lateral de rankings ----------------
 
 function renderizarPanelLateral() {
     const lista = filtrarDatos(rondasData);
     document.getElementById('panel-lateral').style.display = lista.length ? 'flex' : 'none';
     if (lista.length === 0) return;
 
-    // Top CDs por tiempo total de espera
     const mapaCD = {};
     lista.forEach(function (r) {
         r.cds.forEach(function (c) {
-            const key = c.zonaNombre;
-            mapaCD[key] = (mapaCD[key] || 0) + (c.fin - c.inicio) / 3600000;
+            if (!c.salida) return;
+            mapaCD[c.zona] = (mapaCD[c.zona] || 0) + (c.salida - c.entrada) / 3600000;
         });
     });
     pintarRanking('ranking-cds', mapaCD, formatHoras);
 
-    // Rondas mas largas (cerradas)
     const cerradas = lista.filter(function (r) { return r.cerrada; })
         .slice().sort(function (a, b) { return b.duracionHoras - a.duracionHoras; }).slice(0, 5);
     const contRondas = document.getElementById('ranking-rondas');
     if (cerradas.length === 0) {
-        contRondas.innerHTML = '<div class="ranking-vacio">Sin rondas terminadas a\u00fan.</div>';
+        contRondas.innerHTML = '<div class="ranking-vacio">Sin viajes terminados aún.</div>';
     } else {
         contRondas.innerHTML = cerradas.map(function (r) {
             return '<div class="ranking-fila"><span class="ranking-nombre">' + esc(r.disp.name) + '</span><span class="ranking-valor">' + formatHoras(r.duracionHoras) + '</span></div>';
         }).join('');
     }
-
-    // Rutas mas lentas (promedio de esta consulta, por firma)
-    const mapaRuta = {};
-    lista.filter(function (r) { return r.cerrada && r.cds.length; }).forEach(function (r) {
-        const f = r.firma || firmaRuta(r);
-        if (!mapaRuta[f]) mapaRuta[f] = { suma: 0, cantidad: 0 };
-        mapaRuta[f].suma += r.duracionHoras;
-        mapaRuta[f].cantidad += 1;
-    });
-    const promediosRuta = {};
-    Object.keys(mapaRuta).forEach(function (k) { promediosRuta[k] = mapaRuta[k].suma / mapaRuta[k].cantidad; });
-    pintarRanking('ranking-rutas', promediosRuta, formatHoras);
 }
 
 function pintarRanking(elId, mapaValores, formateador) {
@@ -1179,21 +1190,25 @@ document.addEventListener('click', function (e) {
     if (combo && !combo.contains(e.target)) document.getElementById('combo-exportar-lista').classList.remove('open');
 });
 
-// ---------------- Minimapa de la ronda ----------------
+// ---------------- Minimapa del viaje ----------------
+
+function abrirModalMapaDesdePanel() {
+    if (panelViajeIdxActual < 0) return;
+    abrirModalMapa(panelViajeIdxActual);
+}
 
 function abrirModalMapa(rIndex) {
-    const lista = filtrarDatos(rondasData);
-    const r = lista[rIndex];
+    const r = rondasFiltradasActuales[rIndex];
     if (!r) return;
 
-    document.getElementById('modal-mapa-titulo').innerText = r.disp.name + ' \u2014 ' + (r.firma || firmaRuta(r) || 'Ruta');
+    document.getElementById('modal-mapa-titulo').innerText = r.disp.name + ' — ' + (r.firma || 'Ruta');
     document.getElementById('modal-mapa-overlay').style.display = 'flex';
 
     setTimeout(function () {
-        const puntos = r.cds.filter(function (c) { return c.lat != null && c.lon != null; }).map(function (c) { return { lat: c.lat, lon: c.lon, nombre: c.zonaNombre }; });
+        const puntos = r.paradas.filter(function (p) { return p.lat != null && p.lon != null; }).map(function (p) { return { lat: p.lat, lon: p.lon, nombre: p.zona }; });
         if (mapaLeaflet) { mapaLeaflet.remove(); mapaLeaflet = null; }
         const contenedor = document.getElementById('mapa-ronda');
-        if (puntos.length === 0) { contenedor.innerHTML = '<div style="padding:40px;text-align:center;color:#9aa4b2;">Sin coordenadas disponibles para esta ronda.</div>'; return; }
+        if (puntos.length === 0) { contenedor.innerHTML = '<div style="padding:40px;text-align:center;color:#9aa4b2;">Sin coordenadas disponibles para este viaje.</div>'; return; }
 
         mapaLeaflet = L.map('mapa-ronda').setView([puntos[0].lat, puntos[0].lon], 8);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(mapaLeaflet);
@@ -1231,7 +1246,7 @@ function exportarExcel(modo) {
         colsHoras = [7];
         filas = lista.map(function (r) {
             const nombre = mapaConductoresGlobal[r.driverId] || (r.driverId || 'SIN CONDUCTOR');
-            const ruta = r.cds.length ? r.cds.map(function (c) { return c.zonaNombre; }).join(' -> ') : (r.sinSalidaConocida ? 'Ronda incompleta' : 'Directo');
+            const ruta = r.cds.length ? r.cds.map(function (c) { return c.zona; }).join(' -> ') : (r.sinSalidaConocida ? 'Viaje incompleto' : 'Directo');
             const estado = calcularEstado(r).texto;
             return [
                 nombre, r.disp.name, r.flota, ruta,
@@ -1242,22 +1257,16 @@ function exportarExcel(modo) {
             ];
         });
     } else {
-        encabezados = ['Conductor', 'Placa', 'Flota', 'CD', 'Ingreso', 'Salida', 'Duraci\u00f3n en CD'];
+        encabezados = ['Placa', 'Conductor', 'Fecha y hora de salida', 'Punto de salida', 'Fecha y hora de llegada', 'Punto de llegada', 'Duraci\u00f3n'];
         colsHoras = [7];
-        filas = [];
-        lista.forEach(function (r) {
-            const nombre = mapaConductoresGlobal[r.driverId] || (r.driverId || 'SIN CONDUCTOR');
-            if (r.cds.length === 0) {
-                filas.push([nombre, r.disp.name, r.flota, '(sin CDs visitadas)', '', '', null]);
-            } else {
-                r.cds.forEach(function (c) {
-                    filas.push([nombre, r.disp.name, r.flota, c.zonaNombre, formatFechaHora(c.inicio), formatFechaHora(c.fin), (c.fin - c.inicio) / 3600000 / 24]);
-                });
-            }
+        const tramos = construirTramosPlanos(lista);
+        filas = tramos.map(function (t) {
+            const nombre = mapaConductoresGlobal[t.driverId] || (t.driverId || 'SIN CONDUCTOR');
+            return [t.disp.name, nombre, formatFechaHora(t.salida), t.puntoSalida, formatFechaHora(t.llegada), t.puntoLlegada, t.duracionHoras / 24];
         });
     }
 
-    const anchos = modo === 'resumen' ? [26, 16, 12, 34, 20, 20, 14, 30] : [26, 16, 12, 22, 20, 20, 16];
+    const anchos = modo === 'resumen' ? [26, 16, 12, 34, 20, 20, 14, 22] : [16, 26, 20, 22, 20, 22, 14];
     anchos.forEach(function (w, i) { ws.getColumn(i + 1).width = w; });
 
     const headerRow = ws.addRow(encabezados);
