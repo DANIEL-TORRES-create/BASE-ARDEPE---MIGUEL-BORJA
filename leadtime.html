@@ -309,15 +309,29 @@ async function cargarConductores() {
 // Trae TODAS las zonas y filtra client-side por tipo CD (igual patron que otros proyectos
 // de este cliente: mas confiable que depender de un search server-side por tipo).
 let errorZonasCD = null;
+let totalZonasRecibidas = 0;
+let ejemploTiposZona = [];
 
 async function cargarZonasCD() {
     try {
         const todas = await geotabApi.call('Get', { typeName: 'Zone', search: {}, resultsLimit: 8000 });
+        totalZonasRecibidas = (todas || []).length;
+
+        // Diagnostico: guarda los primeros tipos de zona vistos (para comparar contra el
+        // ZONE_TYPE_ID configurado, en caso de que no calce ninguna).
+        const tiposVistos = {};
+        (todas || []).forEach(function (z) {
+            (z.zoneTypes || []).forEach(function (zt) { tiposVistos[zt.id] = zt.name || zt.id; });
+        });
+        ejemploTiposZona = Object.keys(tiposVistos).map(function (id) { return id + ' (' + tiposVistos[id] + ')'; });
+
         zonasCD = (todas || [])
             .filter(function (z) { return z.zoneTypes && z.zoneTypes.some(function (zt) { return zt.id === ZONE_TYPE_ID; }); })
             .map(function (z) { return { id: z.id, name: z.name, points: z.points || [] }; });
         errorZonasCD = null;
-        console.log('[LeadTime] Zonas totales recibidas:', (todas || []).length, '- Zonas CD filtradas:', zonasCD.length);
+        console.log('[LeadTime] Zonas totales recibidas:', totalZonasRecibidas, '- Zonas CD filtradas:', zonasCD.length);
+        console.log('[LeadTime] Tipos de zona vistos en la cuenta:', tiposVistos);
+        if (todas && todas[0]) console.log('[LeadTime] Ejemplo de zona cruda:', todas[0]);
     } catch (e) {
         console.error('Error cargando zonas CD', e);
         errorZonasCD = (e && e.message) ? e.message : String(e);
@@ -861,6 +875,8 @@ function mostrarEstadoTabla(mensaje, diagnostico) {
     if (diagnostico) {
         html += '<div class="diag-caja">' +
             'Zonas CD cargadas: <b>' + zonasCD.length + '</b>' + (errorZonasCD ? ' &mdash; <span style="color:#c0392b;">ERROR: ' + esc(errorZonasCD) + '</span>' : '') + '<br>' +
+            'Zonas totales recibidas de la cuenta (sin filtrar): <b>' + totalZonasRecibidas + '</b><br>' +
+            (ejemploTiposZona.length ? 'Tipos de zona vistos: <b>' + esc(ejemploTiposZona.slice(0, 15).join(', ')) + '</b><br>' : '') +
             'Dispositivos consultados: <b>' + diagUltimaConsulta.dispositivosConsultados + '</b> &middot; ' +
             'con eventos: <b>' + diagUltimaConsulta.dispositivosConEventos + '</b><br>' +
             'Total eventos de la regla encontrados: <b>' + diagUltimaConsulta.totalEventos + '</b><br>' +
@@ -881,6 +897,8 @@ function renderizarTabla() {
         return;
     }
 
+    asignarNumeroDeViaje(lista);
+
     tbody.innerHTML = '';
     lista.forEach(function (r, idx) {
         const trRonda = crearFilaRonda(r, idx);
@@ -889,6 +907,24 @@ function renderizarTabla() {
         if (r.abierto) {
             r.cds.forEach(function (c) { tbody.appendChild(crearFilaTramo(c)); });
         }
+    });
+}
+
+// Si una misma placa tuvo mas de un viaje dentro de lo que se esta mostrando, se numeran
+// cronologicamente (Viaje 1, Viaje 2...) para diferenciarlos. Si solo tuvo uno, no hace
+// falta numerarlo.
+function asignarNumeroDeViaje(lista) {
+    const porPlaca = {};
+    lista.forEach(function (r) {
+        const key = r.disp.id;
+        if (!porPlaca[key]) porPlaca[key] = [];
+        porPlaca[key].push(r);
+    });
+    Object.keys(porPlaca).forEach(function (key) {
+        const viajes = porPlaca[key];
+        if (viajes.length <= 1) { viajes.forEach(function (r) { r.numeroViaje = null; }); return; }
+        viajes.sort(function (a, b) { return (a.salida || (a.cds[0] && a.cds[0].inicio) || 0) - (b.salida || (b.cds[0] && b.cds[0].inicio) || 0); });
+        viajes.forEach(function (r, i) { r.numeroViaje = i + 1; });
     });
 }
 
@@ -919,7 +955,7 @@ function crearFilaRonda(r, idx) {
     else semaforoHTML = '<div class="semaforo semaforo-gris"><span class="semaforo-dot"></span><span class="semaforo-texto">Sin referencia a\u00fan</span></div>';
 
     tr.innerHTML =
-        '<td><span class="expand-icon ' + (r.abierto ? 'abierto' : '') + '">&#9654;</span><span class="ronda-placa">' + esc(r.disp.name) + '</span><div class="ronda-meta">' + esc(nombreConductor) + '</div></td>' +
+        '<td><span class="expand-icon ' + (r.abierto ? 'abierto' : '') + '">&#9654;</span><span class="ronda-placa">' + esc(r.disp.name) + (r.numeroViaje ? ' <span class="badge-viaje-numero">Viaje ' + r.numeroViaje + '</span>' : '') + '</span><div class="ronda-meta">' + esc(nombreConductor) + '</div></td>' +
         '<td>' + badgeFlota + '</td>' +
         '<td>' + ruta + botonMapa + '</td>' +
         '<td style="font-size:11.5px;">' + salidaTxt + '</td>' +
