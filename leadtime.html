@@ -20,7 +20,7 @@
     <div class="header">
         <div>
             <h2 class="title">ARDEPE &mdash; Lead Time por CD</h2>
-            <p class="subtitle">Rondas Planta Pucusana &#8594; Centros de Distribuci&oacute;n &#8594; retorno</p>
+            <p class="subtitle">Viajes Planta Pucusana &#8594; Centros de Distribuci&oacute;n &#8594; retorno</p>
         </div>
         <img src="ardepe-logo.png" alt="ARDEPE SAC" class="logo-header" onerror="this.style.display='none';">
     </div>
@@ -29,12 +29,12 @@
     <div class="kpi-row">
         <div class="kpi-box bg-navy">
             <span class="kpi-icon">&#127974;</span>
-            <span class="kpi-label">Rondas Terminadas</span>
+            <span class="kpi-label">Viajes Terminados</span>
             <span class="kpi-value" id="kpi-terminadas">--</span>
         </div>
         <div class="kpi-box bg-amber">
             <span class="kpi-icon">&#128666;</span>
-            <span class="kpi-label">Rondas En Curso</span>
+            <span class="kpi-label">Viajes En Curso</span>
             <span class="kpi-value" id="kpi-encurso">--</span>
         </div>
         <div class="kpi-box bg-blue">
@@ -147,7 +147,7 @@
                 <div id="ranking-cds"></div>
             </div>
             <div class="panel-seccion">
-                <div class="panel-titulo">Rondas m&aacute;s largas</div>
+                <div class="panel-titulo">Viajes m&aacute;s largos</div>
                 <div id="ranking-rondas"></div>
             </div>
             <div class="panel-seccion">
@@ -167,7 +167,7 @@
     <!-- Modal: minimapa de la ronda -->
     <div class="modal-overlay-generico" id="modal-mapa-overlay" style="display:none;" onclick="if(event.target===this) cerrarModalMapa()">
         <div class="modal-box-generico modal-box-ancho">
-            <h3 id="modal-mapa-titulo">Ruta de la ronda</h3>
+            <h3 id="modal-mapa-titulo">Ruta del viaje</h3>
             <div id="mapa-ronda" style="width:100%; height:420px; border-radius:10px; overflow:hidden;"></div>
             <div class="modal-botones-generico">
                 <button class="btn btn-blue" onclick="cerrarModalMapa()">Cerrar</button>
@@ -308,14 +308,19 @@ async function cargarConductores() {
 
 // Trae TODAS las zonas y filtra client-side por tipo CD (igual patron que otros proyectos
 // de este cliente: mas confiable que depender de un search server-side por tipo).
+let errorZonasCD = null;
+
 async function cargarZonasCD() {
     try {
-        const todas = await geotabApi.call('Get', { typeName: 'Zone', resultsLimit: 8000 });
+        const todas = await geotabApi.call('Get', { typeName: 'Zone', search: {}, resultsLimit: 8000 });
         zonasCD = (todas || [])
             .filter(function (z) { return z.zoneTypes && z.zoneTypes.some(function (zt) { return zt.id === ZONE_TYPE_ID; }); })
             .map(function (z) { return { id: z.id, name: z.name, points: z.points || [] }; });
+        errorZonasCD = null;
+        console.log('[LeadTime] Zonas totales recibidas:', (todas || []).length, '- Zonas CD filtradas:', zonasCD.length);
     } catch (e) {
         console.error('Error cargando zonas CD', e);
+        errorZonasCD = (e && e.message) ? e.message : String(e);
         zonasCD = [];
     }
 }
@@ -855,7 +860,7 @@ function mostrarEstadoTabla(mensaje, diagnostico) {
     let html = '<tr><td colspan="8" class="estado-tabla">' + esc(mensaje);
     if (diagnostico) {
         html += '<div class="diag-caja">' +
-            'Zonas CD cargadas: <b>' + zonasCD.length + '</b><br>' +
+            'Zonas CD cargadas: <b>' + zonasCD.length + '</b>' + (errorZonasCD ? ' &mdash; <span style="color:#c0392b;">ERROR: ' + esc(errorZonasCD) + '</span>' : '') + '<br>' +
             'Dispositivos consultados: <b>' + diagUltimaConsulta.dispositivosConsultados + '</b> &middot; ' +
             'con eventos: <b>' + diagUltimaConsulta.dispositivosConEventos + '</b><br>' +
             'Total eventos de la regla encontrados: <b>' + diagUltimaConsulta.totalEventos + '</b><br>' +
@@ -872,7 +877,7 @@ function renderizarTabla() {
     const lista = filtrarDatos(rondasData);
 
     if (lista.length === 0) {
-        mostrarEstadoTabla('No hay rondas para los filtros aplicados.', true);
+        mostrarEstadoTabla('No hay viajes para los filtros aplicados.', true);
         return;
     }
 
@@ -896,7 +901,7 @@ function crearFilaRonda(r, idx) {
     const nombreConductor = mapaConductoresGlobal[r.driverId] || (r.driverId ? r.driverId : 'SIN CONDUCTOR');
 
     const ruta = r.sinSalidaConocida
-        ? '<span style="color:#c0392b;">Ronda incompleta &mdash; inicio no visible en el filtro</span>'
+        ? '<span style="color:#c0392b;">Viaje incompleto &mdash; inicio no visible en el filtro</span>'
         : (r.cds.length ? esc(r.cds.map(function (c) { return c.zonaNombre; }).join(' \u2192 ')) : '<span style="color:#9aa4b2;">Directo (sin CDs)</span>');
     const botonMapa = r.cds.length ? '<button class="btn-mapa-mini" onclick="event.stopPropagation(); abrirModalMapa(' + idx + ')">&#128506; Mapa</button>' : '';
 
