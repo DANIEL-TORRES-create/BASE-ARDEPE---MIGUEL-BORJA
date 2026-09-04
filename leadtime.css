@@ -289,6 +289,19 @@ tbody tr.fila-ronda { cursor: pointer; }
     margin-bottom: 8px;
 }
 
+.diag-pre {
+    background: #0a1020;
+    color: #c8e6c9;
+    padding: 14px;
+    border-radius: 8px;
+    font-size: 11px;
+    overflow-x: auto;
+    max-height: 320px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 .expand-icon {
     display: inline-block;
     margin-right: 8px;
