@@ -54,6 +54,20 @@
         </div>
     </div>
 
+    <!-- DIAGNOSTICO TEMPORAL: datos crudos de la API, sin ningun calculo. Quitar cuando
+         se confirme el formato correcto de fecha/duracion. -->
+    <div id="diag-crudo-wrap" style="display:none; margin-bottom:14px;">
+        <div class="diag-crudo-titulo">&#128295; Diagn&oacute;stico temporal &mdash; datos CRUDOS de la API (sin procesar)</div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>Placa</th><th>activeFrom (crudo)</th><th>duration (crudo)</th><th>tipo de dato</th><th>rule.id</th></tr>
+                </thead>
+                <tbody id="diag-crudo-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- Toolbar -->
     <div class="sticky-header" id="sticky-header">
         <div class="toolbar">
@@ -493,6 +507,7 @@ async function consultar() {
     btn.disabled = true;
     btn.innerText = '\u23F3 Consultando...';
     diagUltimaConsulta = { dispositivosConsultados: 0, dispositivosConEventos: 0, totalEventos: 0, eventosSinZona: 0, eventosSinGPS: 0 };
+    diagEventosCrudos = [];
     mostrarProgreso(true, 'Preparando consulta...');
 
     try {
@@ -535,6 +550,7 @@ async function consultar() {
         renderizarTabla();
         actualizarKPIs();
         renderizarPanelLateral();
+        renderizarDiagCrudo(); // DIAGNOSTICO TEMPORAL
 
     } catch (e) {
         console.error(e);
@@ -594,6 +610,7 @@ function logMasCercano(logs, instanteMs) {
 }
 
 let diagUltimaConsulta = { dispositivosConsultados: 0, dispositivosConEventos: 0, totalEventos: 0, eventosSinZona: 0, eventosSinGPS: 0 };
+let diagEventosCrudos = []; // DIAGNOSTICO TEMPORAL
 
 async function procesarDispositivo(disp, fromDate, toDate) {
     diagUltimaConsulta.dispositivosConsultados++;
@@ -606,6 +623,18 @@ async function procesarDispositivo(disp, fromDate, toDate) {
 
     const grupoIds = disp.grupos || [];
     const flota = grupoIds.includes(GRUPOS.LOCAL) ? 'LOCAL' : (grupoIds.includes(GRUPOS.PROVINCIA) ? 'PROVINCIA' : 'OTRO');
+
+    // --- DIAGNOSTICO TEMPORAL: guarda el dato crudo tal cual viene de la API, sin ningun
+    // calculo, para comparar contra el Excel de referencia. Quitar una vez confirmado. ---
+    eventos.forEach(function (ev) {
+        diagEventosCrudos.push({
+            placa: disp.name,
+            activeFrom: ev.activeFrom,
+            duration: ev.duration,
+            durationTipo: typeof ev.duration,
+            ruleName: ev.rule ? ev.rule.id : '(sin rule)'
+        });
+    });
 
     // Resolver cada evento a {inicio, fin, zonaNombre, lat, lon, driverId}
     const eventosResueltos = eventos.map(function (ev) {
@@ -1036,6 +1065,24 @@ function actualizarKPIs() {
 }
 
 // ---------------- Panel lateral (rankings) ----------------
+
+// DIAGNOSTICO TEMPORAL: pinta la tabla de datos crudos de la API sin procesar.
+function renderizarDiagCrudo() {
+    const wrap = document.getElementById('diag-crudo-wrap');
+    const tbody = document.getElementById('diag-crudo-tbody');
+    if (diagEventosCrudos.length === 0) { wrap.style.display = 'none'; return; }
+
+    wrap.style.display = 'block';
+    tbody.innerHTML = diagEventosCrudos.map(function (e) {
+        return '<tr>' +
+            '<td>' + esc(e.placa) + '</td>' +
+            '<td>' + esc(e.activeFrom) + '</td>' +
+            '<td>' + esc(JSON.stringify(e.duration)) + '</td>' +
+            '<td>' + esc(e.durationTipo) + '</td>' +
+            '<td>' + esc(e.ruleName) + '</td>' +
+            '</tr>';
+    }).join('');
+}
 
 function renderizarPanelLateral() {
     const lista = filtrarDatos(rondasData);
