@@ -281,6 +281,14 @@ tbody tr.fila-ronda { cursor: pointer; }
     text-align: left;
 }
 
+.diag-crudo-titulo {
+    font-size: 11px;
+    font-weight: 800;
+    color: #c0392b;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
 .expand-icon {
     display: inline-block;
     margin-right: 8px;
