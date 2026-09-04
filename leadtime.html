@@ -28,22 +28,27 @@
     <!-- KPIs -->
     <div class="kpi-row">
         <div class="kpi-box bg-navy">
+            <span class="kpi-icon">&#127974;</span>
             <span class="kpi-label">Rondas Terminadas</span>
             <span class="kpi-value" id="kpi-terminadas">--</span>
         </div>
         <div class="kpi-box bg-amber">
+            <span class="kpi-icon">&#128666;</span>
             <span class="kpi-label">Rondas En Curso</span>
             <span class="kpi-value" id="kpi-encurso">--</span>
         </div>
         <div class="kpi-box bg-blue">
+            <span class="kpi-icon">&#9201;</span>
             <span class="kpi-label">Duraci&oacute;n Promedio</span>
             <span class="kpi-value" id="kpi-promedio">--</span>
         </div>
         <div class="kpi-box bg-red">
+            <span class="kpi-icon">&#9888;</span>
             <span class="kpi-label">Excedieron Tiempo Esperado</span>
             <span class="kpi-value" id="kpi-excedidas">--</span>
         </div>
         <div class="kpi-box bg-teal">
+            <span class="kpi-icon">&#128205;</span>
             <span class="kpi-label">CD Mayor Espera Promedio</span>
             <span class="kpi-value kpi-value-text" id="kpi-topcd">--</span>
         </div>
@@ -174,6 +179,1012 @@
 
 <div class="timeline-tooltip" id="timeline-tooltip"></div>
 
-<script src="leadtime.js?v=1"></script>
+<script>
+/* ==========================================================================
+   ARDEPE - Lead Time por CD
+   Agrupa eventos de "(SEVILLANO) LEAD TIME POR CD" en RONDAS:
+   Planta Pucusana -> CDs visitadas (en orden) -> retorno a Planta Pucusana.
+   ========================================================================== */
+
+// ---------------- Configuracion (unico lugar a editar si cambia algo) ----------------
+
+const RULE_ID = 'aDW9ljhg6lEuypta-ka9g1g'; // regla "(SEVILLANO) LEAD TIME POR CD"
+const ZONE_TYPE_ID = 'b27A8';              // tipo de zona = Centros de Distribucion (CD)
+const GRUPOS = { LOCAL: 'b2798', PROVINCIA: 'b279A' };
+const PLANTA_NOMBRE = 'PLANTA PUCUSANA';   // punto de anclaje de las rondas (normalizado en mayus)
+const MAX_DIAS = 7;
+const PAUSA_MS = 300;
+const REINTENTOS = 3;
+const BLOQUE_DISPOSITIVOS = 12;
+const HIST_STORAGE_KEY = 'ardepe_leadtime_historico_rutas_v1';
+
+// ---------------- Estado global ----------------
+
+let geotabApi = null;
+let zonasCD = [];                 // [{id, name, points:[{x,y}]}]
+let dispositivosGlobal = [];      // catalogo de unidades (para combobox de Placa)
+let placaSeleccionadaId = null;
+let mapaConductoresGlobal = {};   // driverId -> nombre completo
+let promesaConductores = null;
+let promesaZonas = null;
+let rondasData = [];              // rondas ya procesadas y listas para mostrar
+let mapaLeaflet = null;
+let claveOrden = 'salida';
+let ordenAsc = false;
+
+// ---------------- Utilidades basicas ----------------
+
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+function esc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function formatFechaHora(d) {
+    if (!d) return '';
+    return d.toLocaleString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatHoras(horasDecimal) {
+    if (!horasDecimal || horasDecimal < 0) horasDecimal = 0;
+    const totalMin = Math.round(horasDecimal * 60);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    return h + 'h ' + m + 'm';
+}
+
+// Trip/ExceptionEvent duraciones tipo TimeSpan de MyGeotab: "hh:mm:ss" o "d.hh:mm:ss"
+function timeSpanAHoras(valor) {
+    if (!valor) return 0;
+    const partes = String(valor).split('.');
+    let dias = 0, resto = valor;
+    if (partes.length === 2 && partes[0].match(/^\d+$/)) {
+        dias = parseInt(partes[0], 10);
+        resto = partes[1];
+    }
+    const comp = String(resto).split(':').map(Number);
+    const h = comp[0] || 0, m = comp[1] || 0, s = comp[2] || 0;
+    return dias * 24 + h + m / 60 + s / 3600;
+}
+
+// ExceptionEvent.duration: se intenta como TimeSpan "hh:mm:ss" primero; si no tiene ":" se
+// asume que ya viene como horas decimales. (Verificar con una consulta real la primera vez.)
+function duracionAHoras(valor) {
+    if (valor == null) return 0;
+    const str = String(valor);
+    if (str.indexOf(':') !== -1) return timeSpanAHoras(str);
+    const n = parseFloat(str);
+    return isNaN(n) ? 0 : n;
+}
+
+function serialValido(serial) {
+    const s = String(serial || '').toUpperCase().trim();
+    return s.startsWith('G7') || s.startsWith('G9') || s.startsWith('GA');
+}
+
+function esPlanta(zonaNombre) {
+    return (zonaNombre || '').trim().toUpperCase() === PLANTA_NOMBRE;
+}
+
+// ---------------- Punto-en-poligono (para resolver zona por coordenadas) ----------------
+// Convencion de MyGeotab Zone.points: p.y = latitud, p.x = longitud.
+
+function puntoEnPoligono(lat, lon, points) {
+    if (!points || points.length < 3) return false;
+    let dentro = false;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const yi = points[i].y, xi = points[i].x;
+        const yj = points[j].y, xj = points[j].x;
+        const intersecta = ((yi > lat) !== (yj > lat)) &&
+            (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+        if (intersecta) dentro = !dentro;
+    }
+    return dentro;
+}
+
+function resolverZonaPorCoord(lat, lon) {
+    if (lat == null || lon == null) return null;
+    for (let i = 0; i < zonasCD.length; i++) {
+        if (puntoEnPoligono(lat, lon, zonasCD[i].points)) return zonasCD[i];
+    }
+    return null;
+}
+
+// ---------------- Carga inicial (conductores, zonas CD, catalogo de placas) ----------------
+
+async function cargarConductores() {
+    try {
+        const res = await geotabApi.call('Get', { typeName: 'User', search: { isDriver: true } });
+        mapaConductoresGlobal = {};
+        (res || []).forEach(function (u) {
+            const nombre = ((u.firstName || '') + ' ' + (u.lastName || '')).trim();
+            mapaConductoresGlobal[u.id] = nombre || u.name || u.id;
+        });
+    } catch (e) {
+        console.error('Error cargando conductores', e);
+    }
+}
+
+// Trae TODAS las zonas y filtra client-side por tipo CD (igual patron que otros proyectos
+// de este cliente: mas confiable que depender de un search server-side por tipo).
+async function cargarZonasCD() {
+    try {
+        const todas = await geotabApi.call('Get', { typeName: 'Zone', resultsLimit: 8000 });
+        zonasCD = (todas || [])
+            .filter(function (z) { return z.zoneTypes && z.zoneTypes.some(function (zt) { return zt.id === ZONE_TYPE_ID; }); })
+            .map(function (z) { return { id: z.id, name: z.name, points: z.points || [] }; });
+    } catch (e) {
+        console.error('Error cargando zonas CD', e);
+        zonasCD = [];
+    }
+}
+
+async function cargarDispositivosGlobal() {
+    try {
+        dispositivosGlobal = await obtenerDispositivos();
+    } catch (e) {
+        console.error('Error cargando catalogo de unidades', e);
+    }
+}
+
+async function obtenerDispositivos() {
+    if (placaSeleccionadaId) {
+        const yaConocido = dispositivosGlobal.find(function (d) { return d.id === placaSeleccionadaId; });
+        if (yaConocido) return [yaConocido];
+    }
+    const textoPlaca = (document.getElementById('filtro-placa') || {}).value;
+    if (textoPlaca && textoPlaca.trim() && dispositivosGlobal.length > 0) {
+        const t = textoPlaca.trim().toUpperCase();
+        const coincidencias = dispositivosGlobal.filter(function (d) { return d.name.toUpperCase().includes(t); });
+        if (coincidencias.length > 0) return coincidencias;
+    }
+    const res = await geotabApi.call('Get', {
+        typeName: 'Device',
+        search: { activeState: 'Active', groups: [{ id: GRUPOS.LOCAL }, { id: GRUPOS.PROVINCIA }] }
+    });
+    return res.filter(function (d) { return serialValido(d.serialNumber); })
+        .map(function (d) { return { id: d.id, name: d.name, grupos: (d.groups || []).map(function (g) { return g.id; }) }; });
+}
+
+// ---------------- Combobox de Placa (igual patron que Horas de Conduccion) ----------------
+
+function configurarComboPlaca() {
+    const input = document.getElementById('filtro-placa');
+    const lista = document.getElementById('combo-placa-lista');
+
+    function abrirLista(filtroTexto) {
+        renderizarListaPlacas(filtroTexto);
+        lista.classList.add('open');
+    }
+
+    input.addEventListener('focus', function () { abrirLista(input.value); });
+    input.addEventListener('input', function () {
+        placaSeleccionadaId = null;
+        abrirLista(input.value);
+        filtrosCambiaron();
+    });
+    document.addEventListener('click', function (e) {
+        if (!document.getElementById('combo-placa').contains(e.target)) lista.classList.remove('open');
+    });
+}
+
+function renderizarListaPlacas(filtroTexto) {
+    const lista = document.getElementById('combo-placa-lista');
+    const t = (filtroTexto || '').toUpperCase().trim();
+    const items = dispositivosGlobal.filter(function (d) { return !t || d.name.toUpperCase().includes(t); }).slice(0, 50);
+
+    let html = '<div class="combo-placa-item combo-placa-todas" data-id="__TODAS__">TODAS</div>';
+    if (items.length === 0) {
+        html += '<div class="combo-placa-empty">Sin coincidencias</div>';
+    } else {
+        html += items.map(function (d) { return '<div class="combo-placa-item" data-id="' + d.id + '">' + esc(d.name) + '</div>'; }).join('');
+    }
+    lista.innerHTML = html;
+
+    Array.prototype.forEach.call(lista.querySelectorAll('.combo-placa-item'), function (el) {
+        el.onclick = function () {
+            const id = el.getAttribute('data-id');
+            if (id === '__TODAS__') {
+                placaSeleccionadaId = null;
+                document.getElementById('filtro-placa').value = '';
+            } else {
+                const disp = dispositivosGlobal.find(function (d) { return d.id === id; });
+                if (disp) { placaSeleccionadaId = id; document.getElementById('filtro-placa').value = disp.name; }
+            }
+            lista.classList.remove('open');
+            filtrosCambiaron();
+        };
+    });
+}
+
+// ---------------- Fechas por defecto ----------------
+
+function configurarFechas() {
+    const hoy = new Date();
+    const ayer = new Date(hoy); ayer.setDate(ayer.getDate() - 1);
+    document.getElementById('fecha-inicio').value = toDateInputStr(ayer);
+    document.getElementById('fecha-fin').value = toDateInputStr(hoy);
+
+    document.getElementById('fecha-inicio').addEventListener('change', function () {
+        const ini = new Date(document.getElementById('fecha-inicio').value);
+        const finInput = document.getElementById('fecha-fin');
+        const finActual = new Date(finInput.value);
+        const maxFin = new Date(ini); maxFin.setDate(maxFin.getDate() + MAX_DIAS);
+        if (finActual < ini) finInput.value = toDateInputStr(ini);
+        else if (finActual > maxFin) finInput.value = toDateInputStr(maxFin);
+    });
+}
+
+function toDateInputStr(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function construirISO(fechaStr, horaStr) {
+    return new Date(fechaStr + 'T' + horaStr + ':00').toISOString();
+}
+
+// ---------------- Entrada del add-in ----------------
+
+geotab.addin.LeadTimeARDEPE = function (api, state) {
+    return {
+        initialize: async function (api, state, callback) {
+            geotabApi = api;
+            configurarFechas();
+            promesaConductores = cargarConductores();
+            promesaZonas = cargarZonasCD();
+            cargarDispositivosGlobal();
+            configurarComboPlaca();
+            callback();
+        },
+        focus: function () {},
+        blur: function () {}
+    };
+};
+
+// ---------------- Consulta principal ----------------
+
+async function consultar() {
+    const fechaInicio = document.getElementById('fecha-inicio').value;
+    const horaInicio = document.getElementById('hora-inicio').value;
+    const fechaFin = document.getElementById('fecha-fin').value;
+    const horaFin = document.getElementById('hora-fin').value;
+    if (!fechaInicio || !fechaFin) { alert('Completa el rango de fechas.'); return; }
+
+    const fromDate = construirISO(fechaInicio, horaInicio);
+    const toDate = construirISO(fechaFin, horaFin);
+    if (new Date(toDate) <= new Date(fromDate)) { alert('La fecha/hora de fin debe ser posterior al inicio.'); return; }
+    const dias = (new Date(toDate) - new Date(fromDate)) / 86400000;
+    if (dias > MAX_DIAS + 0.01) { alert('El rango maximo permitido es ' + MAX_DIAS + ' dias.'); return; }
+
+    const btn = document.getElementById('btn-consultar');
+    btn.disabled = true;
+    btn.innerText = '\u23F3 Consultando...';
+    diagUltimaConsulta = { dispositivosConsultados: 0, dispositivosConEventos: 0, totalEventos: 0, eventosSinZona: 0, eventosSinGPS: 0 };
+    mostrarProgreso(true, 'Preparando consulta...');
+
+    try {
+        if (promesaConductores) await promesaConductores;
+        if (promesaZonas) await promesaZonas;
+        if (zonasCD.length === 0) await cargarZonasCD();
+        if (Object.keys(mapaConductoresGlobal).length === 0) await cargarConductores();
+
+        const dispositivos = await obtenerDispositivos();
+        if (dispositivos.length === 0) {
+            rondasData = [];
+            renderizarTabla();
+            actualizarKPIs();
+            return;
+        }
+
+        const mapaDisp = {};
+        dispositivos.forEach(function (d) { mapaDisp[d.id] = d; });
+
+        const todasLasRondas = [];
+        for (let i = 0; i < dispositivos.length; i += BLOQUE_DISPOSITIVOS) {
+            const lote = dispositivos.slice(i, i + BLOQUE_DISPOSITIVOS);
+            actualizarProgreso(i, dispositivos.length, 'Consultando eventos de zona (' + (i + 1) + '-' + Math.min(i + BLOQUE_DISPOSITIVOS, dispositivos.length) + ' de ' + dispositivos.length + ')...');
+
+            const promesas = lote.map(function (disp) { return procesarDispositivo(disp, fromDate, toDate); });
+            const resultadosLote = await Promise.all(promesas);
+            resultadosLote.forEach(function (rondas) { todasLasRondas.push.apply(todasLasRondas, rondas); });
+
+            if (i + BLOQUE_DISPOSITIVOS < dispositivos.length) await sleep(PAUSA_MS);
+        }
+
+        actualizarProgreso(dispositivos.length, dispositivos.length, 'Verificando estado en vivo de rondas abiertas...');
+        await resolverEstadosEnVivo(todasLasRondas, toDate);
+
+        actualizarProgreso(dispositivos.length, dispositivos.length, 'Calculando cumplimiento y rankings...');
+        await calcularSemaforos(todasLasRondas);
+
+        rondasData = todasLasRondas;
+        ordenarDatos();
+        renderizarTabla();
+        actualizarKPIs();
+        renderizarPanelLateral();
+
+    } catch (e) {
+        console.error(e);
+        mostrarEstadoTabla('Error al consultar la API: ' + (e && e.message ? e.message : e));
+    } finally {
+        btn.disabled = false;
+        btn.innerText = '\uD83D\uDD0D Consultar';
+        mostrarProgreso(false);
+    }
+}
+
+// ---------------- Por dispositivo: eventos -> zonas -> rondas ----------------
+
+async function obtenerEventosConReintento(dispositivo, fromDate, toDate) {
+    for (let i = 1; i <= REINTENTOS; i++) {
+        try {
+            const eventos = await geotabApi.call('Get', {
+                typeName: 'ExceptionEvent',
+                resultsLimit: 5000,
+                search: { deviceSearch: { id: dispositivo.id }, ruleSearch: { id: RULE_ID }, fromDate: fromDate, toDate: toDate }
+            });
+            return eventos || [];
+        } catch (e) {
+            if (i === REINTENTOS) return [];
+            await sleep(400 * i);
+        }
+    }
+    return [];
+}
+
+async function obtenerLogRecordConReintento(deviceId, fromDate, toDate) {
+    for (let i = 1; i <= REINTENTOS; i++) {
+        try {
+            const logs = await geotabApi.call('Get', {
+                typeName: 'LogRecord', resultsLimit: 20000,
+                search: { deviceSearch: { id: deviceId }, fromDate: fromDate, toDate: toDate }
+            });
+            return logs || [];
+        } catch (e) {
+            if (i === REINTENTOS) return [];
+            await sleep(400 * i);
+        }
+    }
+    return [];
+}
+
+// Encuentra, dentro de los LogRecord ya traidos, el punto GPS mas cercano en el tiempo a
+// un instante dado (para resolver la zona del evento por coordenadas).
+function logMasCercano(logs, instanteMs) {
+    let mejor = null, mejorDelta = Infinity;
+    for (let i = 0; i < logs.length; i++) {
+        const t = new Date(logs[i].dateTime).getTime();
+        const delta = Math.abs(t - instanteMs);
+        if (delta < mejorDelta) { mejorDelta = delta; mejor = logs[i]; }
+    }
+    return mejor;
+}
+
+let diagUltimaConsulta = { dispositivosConsultados: 0, dispositivosConEventos: 0, totalEventos: 0, eventosSinZona: 0, eventosSinGPS: 0 };
+
+async function procesarDispositivo(disp, fromDate, toDate) {
+    diagUltimaConsulta.dispositivosConsultados++;
+    const eventos = await obtenerEventosConReintento(disp, fromDate, toDate);
+    if (eventos.length === 0) return [];
+    diagUltimaConsulta.dispositivosConEventos++;
+    diagUltimaConsulta.totalEventos += eventos.length;
+
+    const logs = await obtenerLogRecordConReintento(disp.id, fromDate, toDate);
+
+    const grupoIds = disp.grupos || [];
+    const flota = grupoIds.includes(GRUPOS.LOCAL) ? 'LOCAL' : (grupoIds.includes(GRUPOS.PROVINCIA) ? 'PROVINCIA' : 'OTRO');
+
+    // Resolver cada evento a {inicio, fin, zonaNombre, lat, lon, driverId}
+    const eventosResueltos = eventos.map(function (ev) {
+        const inicio = new Date(ev.activeFrom);
+        const horas = duracionAHoras(ev.duration);
+        const fin = new Date(inicio.getTime() + horas * 3600000);
+        const punto = logMasCercano(logs, inicio.getTime());
+        const lat = punto ? punto.latitude : null;
+        const lon = punto ? punto.longitude : null;
+        if (lat == null || lon == null) diagUltimaConsulta.eventosSinGPS++;
+        const zona = resolverZonaPorCoord(lat, lon);
+        return {
+            inicio: inicio, fin: fin, lat: lat, lon: lon,
+            zonaNombre: zona ? zona.name : 'Zona no identificada',
+            driverId: ev.driver ? ev.driver.id : null
+        };
+    }).filter(function (e) {
+        const ok = e.zonaNombre !== 'Zona no identificada';
+        if (!ok) diagUltimaConsulta.eventosSinZona++;
+        return ok;
+    }).sort(function (a, b) { return a.inicio - b.inicio; });
+
+    console.log('[LeadTime]', disp.name, '- eventos:', eventos.length, '- resueltos a zona:', eventosResueltos.length, '- logs GPS:', logs.length);
+
+    if (eventosResueltos.length === 0) return [];
+
+    return construirRondas(eventosResueltos, disp, flota);
+}
+
+// Agrupa eventos ordenados en rondas: cada visita a Planta Pucusana cierra la ronda
+// anterior (llegada) y abre una nueva (salida = al terminar esa visita a planta).
+function construirRondas(eventosResueltos, disp, flota) {
+    const rondas = [];
+    let actual = null;
+
+    eventosResueltos.forEach(function (ev) {
+        if (esPlanta(ev.zonaNombre)) {
+            if (actual) {
+                actual.retorno = ev.inicio;
+                actual.cerrada = true;
+                rondas.push(actual);
+            }
+            actual = { disp: disp, flota: flota, salida: ev.fin, retorno: null, cds: [], cerrada: false, sinSalidaConocida: false, driverId: ev.driverId };
+        } else {
+            if (!actual) {
+                actual = { disp: disp, flota: flota, salida: null, retorno: null, cds: [], cerrada: false, sinSalidaConocida: true, driverId: ev.driverId };
+            }
+            actual.cds.push(ev);
+            if (!actual.driverId) actual.driverId = ev.driverId;
+        }
+    });
+    if (actual && (actual.cds.length > 0 || actual.salida)) rondas.push(actual);
+
+    return rondas;
+}
+
+// ---------------- Estado en vivo para rondas abiertas ----------------
+// Solo se consulta si el filtro "Fin" llega al presente. Distingue 3 estados:
+// EN_RUTA (isDriving), EN_CD (parado dentro de una geocerca CD), DETENIDO_EN_RUTA (parado
+// fuera de cualquier CD).
+
+async function resolverEstadosEnVivo(rondas, toDate) {
+    const ahora = new Date();
+    const llegaAlPresente = new Date(toDate) >= ahora;
+    const abiertas = rondas.filter(function (r) { return !r.cerrada; });
+    if (abiertas.length === 0) return;
+
+    if (!llegaAlPresente) {
+        // Filtro totalmente pasado: se deja el estado historico segun el corte, sin
+        // fingir saber el estado real de ahora.
+        abiertas.forEach(function (r) {
+            r.estadoVivo = null;
+            r.corteHistorico = new Date(toDate);
+        });
+        return;
+    }
+
+    const idsUnicos = [];
+    abiertas.forEach(function (r) { if (idsUnicos.indexOf(r.disp.id) === -1) idsUnicos.push(r.disp.id); });
+
+    const mapaEstado = {};
+    const BLOQUE = 15;
+    for (let i = 0; i < idsUnicos.length; i += BLOQUE) {
+        const lote = idsUnicos.slice(i, i + BLOQUE);
+        const promesas = lote.map(function (devId) {
+            return geotabApi.call('Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: devId } } })
+                .then(function (res) { return { devId: devId, info: res && res[0] }; })
+                .catch(function () { return { devId: devId, info: null }; });
+        });
+        const resultados = await Promise.all(promesas);
+        resultados.forEach(function (r) { mapaEstado[r.devId] = r.info; });
+        if (i + BLOQUE < idsUnicos.length) await sleep(200);
+    }
+
+    abiertas.forEach(function (r) {
+        const info = mapaEstado[r.disp.id];
+        if (!info) { r.estadoVivo = 'DESCONOCIDO'; return; }
+
+        if (info.isDriving) {
+            r.estadoVivo = 'EN_RUTA';
+        } else {
+            const zona = resolverZonaPorCoord(info.latitude, info.longitude);
+            if (zona) {
+                r.estadoVivo = 'EN_CD';
+                r.cdActualVivo = zona.name;
+                r.duracionEstadoVivo = timeSpanAHoras(info.currentStateDuration);
+            } else {
+                r.estadoVivo = 'DETENIDO_EN_RUTA';
+                r.duracionEstadoVivo = timeSpanAHoras(info.currentStateDuration);
+            }
+        }
+    });
+}
+
+// ---------------- Semaforo de cumplimiento (promedio historico via localStorage) ----------------
+// El promedio se acumula por "firma de ruta" (CDs intermedias en orden, sin contar Planta),
+// persistido en este navegador. Cada consulta lee el historico ANTES de sumar la ronda
+// actual, para comparar limpio, y luego lo actualiza.
+
+function firmaRuta(ronda) {
+    return ronda.cds.map(function (c) { return c.zonaNombre.trim().toUpperCase(); }).join(' \u2192 ');
+}
+
+function leerHistoricoRutas() {
+    try {
+        const raw = localStorage.getItem(HIST_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch (e) { return {}; }
+}
+
+function guardarHistoricoRutas(hist) {
+    try { localStorage.setItem(HIST_STORAGE_KEY, JSON.stringify(hist)); } catch (e) {}
+}
+
+async function calcularSemaforos(rondas) {
+    const hist = leerHistoricoRutas();
+
+    rondas.forEach(function (r) {
+        if (r.cds.length === 0) { r.semaforo = 'GRIS'; r.duracionHoras = 0; return; }
+
+        const firma = firmaRuta(r);
+        r.firma = firma;
+
+        if (!r.cerrada) {
+            // Ronda en curso: no tiene duracion total definitiva, no se compara aun.
+            r.semaforo = 'GRIS';
+            return;
+        }
+
+        // Si la ronda es "incompleta" (no se vio la salida real de Planta dentro del
+        // filtro), se usa el primer evento conocido como inicio aproximado -- la duracion
+        // en ese caso es un minimo, no el tiempo real completo.
+        const inicioParaCalculo = r.salida || (r.cds[0] && r.cds[0].inicio);
+        const duracionHoras = inicioParaCalculo ? (r.retorno - inicioParaCalculo) / 3600000 : 0;
+        r.duracionHoras = duracionHoras;
+
+        const ref = hist[firma];
+        if (!ref || ref.cantidad === 0) {
+            r.semaforo = 'GRIS';
+            r.esperadoHoras = null;
+        } else {
+            const esperado = ref.suma / ref.cantidad;
+            r.esperadoHoras = esperado;
+            if (duracionHoras <= esperado * 1.1) r.semaforo = 'VERDE';
+            else if (duracionHoras <= esperado * 1.3) r.semaforo = 'AMARILLO';
+            else r.semaforo = 'ROJO';
+        }
+
+        if (!hist[firma]) hist[firma] = { suma: 0, cantidad: 0 };
+        hist[firma].suma += duracionHoras;
+        hist[firma].cantidad += 1;
+    });
+
+    guardarHistoricoRutas(hist);
+}
+
+// ---------------- Estado textual de una ronda (usado en tabla y export) ----------------
+
+function calcularEstado(r) {
+    if (r.cerrada) return { clase: 'badge-terminado', texto: 'TERMINADO' };
+
+    if (r.estadoVivo === 'EN_RUTA') return { clase: 'badge-enruta', texto: 'EN RUTA' };
+    if (r.estadoVivo === 'EN_CD') {
+        const extra = r.duracionEstadoVivo ? ' (hace ' + formatHoras(r.duracionEstadoVivo) + ')' : '';
+        return { clase: 'badge-encd', texto: 'EN CD: ' + r.cdActualVivo + extra };
+    }
+    if (r.estadoVivo === 'DETENIDO_EN_RUTA') {
+        const extra = r.duracionEstadoVivo ? ' (hace ' + formatHoras(r.duracionEstadoVivo) + ')' : '';
+        return { clase: 'badge-detenido-ruta', texto: 'DETENIDO EN RUTA' + extra };
+    }
+    if (r.corteHistorico) {
+        const horaCorte = r.corteHistorico.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+        const ultimaCD = r.cds.length ? r.cds[r.cds.length - 1].zonaNombre : null;
+        return ultimaCD
+            ? { clase: 'badge-historico', texto: 'EN CD: ' + ultimaCD + ' (seg\u00fan corte del filtro, ' + horaCorte + ')' }
+            : { clase: 'badge-historico', texto: 'SIN RETORNO AL CORTE (' + horaCorte + ')' };
+    }
+    return { clase: 'badge-historico', texto: 'DESCONOCIDO' };
+}
+
+// ---------------- Linea de tiempo visual ----------------
+
+function construirSegmentosTimeline(r) {
+    const segmentos = [];
+    const inicioRef = r.salida || (r.cds[0] && r.cds[0].inicio) || null;
+    if (!inicioRef) return segmentos;
+
+    let cursor = inicioRef;
+    r.cds.forEach(function (c) {
+        if (c.inicio > cursor) segmentos.push({ tipo: 'ruta', horas: (c.inicio - cursor) / 3600000 });
+        segmentos.push({ tipo: 'cd', horas: (c.fin - c.inicio) / 3600000, nombre: c.zonaNombre });
+        cursor = c.fin;
+    });
+    if (r.retorno && r.retorno > cursor) segmentos.push({ tipo: 'ruta', horas: (r.retorno - cursor) / 3600000 });
+    return segmentos;
+}
+
+function construirTimelineHTML(r) {
+    const segmentos = construirSegmentosTimeline(r);
+    if (segmentos.length === 0) return '<span style="font-size:11px;color:#9aa4b2;">Sin datos</span>';
+    const total = segmentos.reduce(function (s, x) { return s + x.horas; }, 0) || 1;
+    const partes = segmentos.map(function (s) {
+        const pct = Math.max(2, (s.horas / total) * 100);
+        const clase = s.tipo === 'cd' ? 'encd' : 'conduccion';
+        const label = s.tipo === 'cd' ? (s.nombre + ': ' + formatHoras(s.horas)) : ('En ruta: ' + formatHoras(s.horas));
+        return '<div class="timeline-seg ' + clase + '" style="width:' + pct.toFixed(1) + '%" data-tip="' + esc(label) + '" onmousemove="mostrarTooltipTimeline(event,this)" onmouseleave="ocultarTooltipTimeline()"></div>';
+    }).join('');
+    return '<div class="timeline-ronda" onclick="event.stopPropagation();">' + partes + '</div>';
+}
+
+function mostrarTooltipTimeline(e, el) {
+    const tip = document.getElementById('timeline-tooltip');
+    tip.textContent = el.getAttribute('data-tip');
+    tip.style.left = (e.clientX + 12) + 'px';
+    tip.style.top = (e.clientY + 12) + 'px';
+    tip.style.display = 'block';
+}
+function ocultarTooltipTimeline() { document.getElementById('timeline-tooltip').style.display = 'none'; }
+
+// ---------------- Filtros y orden ----------------
+
+function filtrarDatos(lista) {
+    const fFlota = document.getElementById('filtro-flota').value;
+    const fConductor = (document.getElementById('filtro-conductor').value || '').toUpperCase().trim();
+    const fPlaca = (document.getElementById('filtro-placa').value || '').toUpperCase().trim();
+
+    return lista.filter(function (r) {
+        if (fFlota !== 'TODOS' && r.flota !== fFlota) return false;
+        if (fPlaca && !r.disp.name.toUpperCase().includes(fPlaca)) return false;
+        if (fConductor) {
+            const nombre = (mapaConductoresGlobal[r.driverId] || '').toUpperCase();
+            if (!nombre.includes(fConductor)) return false;
+        }
+        return true;
+    });
+}
+
+function ordenarPor(clave) {
+    if (claveOrden === clave) ordenAsc = !ordenAsc; else { claveOrden = clave; ordenAsc = false; }
+    ordenarDatos();
+    renderizarTabla();
+}
+
+function ordenarDatos() {
+    rondasData.sort(function (a, b) {
+        let va, vb;
+        if (claveOrden === 'duracion') { va = a.duracionHoras || 0; vb = b.duracionHoras || 0; }
+        else { va = a.salida || a.cds[0].inicio; vb = b.salida || b.cds[0].inicio; }
+        const cmp = va > vb ? 1 : (va < vb ? -1 : 0);
+        return ordenAsc ? cmp : -cmp;
+    });
+}
+
+function filtrosCambiaron() { renderizarTabla(); actualizarKPIs(); renderizarPanelLateral(); }
+
+// ---------------- Renderizado de la tabla ----------------
+
+function mostrarEstadoTabla(mensaje, diagnostico) {
+    let html = '<tr><td colspan="8" class="estado-tabla">' + esc(mensaje);
+    if (diagnostico) {
+        html += '<div class="diag-caja">' +
+            'Zonas CD cargadas: <b>' + zonasCD.length + '</b><br>' +
+            'Dispositivos consultados: <b>' + diagUltimaConsulta.dispositivosConsultados + '</b> &middot; ' +
+            'con eventos: <b>' + diagUltimaConsulta.dispositivosConEventos + '</b><br>' +
+            'Total eventos de la regla encontrados: <b>' + diagUltimaConsulta.totalEventos + '</b><br>' +
+            'Eventos sin punto GPS cercano: <b>' + diagUltimaConsulta.eventosSinGPS + '</b><br>' +
+            'Eventos que no cayeron dentro de ninguna zona CD: <b>' + diagUltimaConsulta.eventosSinZona + '</b>' +
+            '</div>';
+    }
+    html += '</td></tr>';
+    document.getElementById('tbody-principal').innerHTML = html;
+}
+
+function renderizarTabla() {
+    const tbody = document.getElementById('tbody-principal');
+    const lista = filtrarDatos(rondasData);
+
+    if (lista.length === 0) {
+        mostrarEstadoTabla('No hay rondas para los filtros aplicados.', true);
+        return;
+    }
+
+    tbody.innerHTML = '';
+    lista.forEach(function (r, idx) {
+        const trRonda = crearFilaRonda(r, idx);
+        tbody.appendChild(trRonda);
+        tbody.appendChild(crearFilaTimeline(r));
+        if (r.abierto) {
+            r.cds.forEach(function (c) { tbody.appendChild(crearFilaTramo(c)); });
+        }
+    });
+}
+
+function crearFilaRonda(r, idx) {
+    const tr = document.createElement('tr');
+    tr.className = 'fila-ronda';
+    tr.onclick = function () { r.abierto = !r.abierto; renderizarTabla(); };
+
+    const badgeFlota = r.flota === 'LOCAL' ? '<span class="badge badge-local">LOCAL</span>' : '<span class="badge badge-provincia">PROVINCIA</span>';
+    const nombreConductor = mapaConductoresGlobal[r.driverId] || (r.driverId ? r.driverId : 'SIN CONDUCTOR');
+
+    const ruta = r.sinSalidaConocida
+        ? '<span style="color:#c0392b;">Ronda incompleta &mdash; inicio no visible en el filtro</span>'
+        : (r.cds.length ? esc(r.cds.map(function (c) { return c.zonaNombre; }).join(' \u2192 ')) : '<span style="color:#9aa4b2;">Directo (sin CDs)</span>');
+    const botonMapa = r.cds.length ? '<button class="btn-mapa-mini" onclick="event.stopPropagation(); abrirModalMapa(' + idx + ')">&#128506; Mapa</button>' : '';
+
+    const estado = calcularEstado(r);
+    const salidaTxt = r.salida ? formatFechaHora(r.salida) : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const retornoTxt = r.retorno ? formatFechaHora(r.retorno) : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const duracionTxt = r.cerrada
+        ? (formatHoras(r.duracionHoras) + (r.sinSalidaConocida ? ' <span title="Salida real fuera del filtro: este es un minimo, no el tiempo total real" style="color:#c0392b;">*</span>' : ''))
+        : '<span style="color:#9aa4b2;">&#8212;</span>';
+
+    let semaforoHTML;
+    if (r.semaforo === 'VERDE') semaforoHTML = '<div class="semaforo semaforo-verde"><span class="semaforo-dot"></span><span class="semaforo-texto">Dentro de lo esperado</span></div>';
+    else if (r.semaforo === 'AMARILLO') semaforoHTML = '<div class="semaforo semaforo-amarillo"><span class="semaforo-dot"></span><span class="semaforo-texto">Cerca del l\u00edmite</span></div>';
+    else if (r.semaforo === 'ROJO') semaforoHTML = '<div class="semaforo semaforo-rojo"><span class="semaforo-dot"></span><span class="semaforo-texto">Excede lo esperado' + (r.esperadoHoras ? ' (~' + formatHoras(r.esperadoHoras) + ')' : '') + '</span></div>';
+    else semaforoHTML = '<div class="semaforo semaforo-gris"><span class="semaforo-dot"></span><span class="semaforo-texto">Sin referencia a\u00fan</span></div>';
+
+    tr.innerHTML =
+        '<td><span class="expand-icon ' + (r.abierto ? 'abierto' : '') + '">&#9654;</span><span class="ronda-placa">' + esc(r.disp.name) + '</span><div class="ronda-meta">' + esc(nombreConductor) + '</div></td>' +
+        '<td>' + badgeFlota + '</td>' +
+        '<td>' + ruta + botonMapa + '</td>' +
+        '<td style="font-size:11.5px;">' + salidaTxt + '</td>' +
+        '<td style="font-size:11.5px;">' + retornoTxt + '</td>' +
+        '<td style="font-weight:700;">' + duracionTxt + '</td>' +
+        '<td>' + semaforoHTML + '</td>' +
+        '<td><span class="badge ' + estado.clase + '">' + esc(estado.texto) + '</span></td>';
+
+    return tr;
+}
+
+function crearFilaTimeline(r) {
+    const tr = document.createElement('tr');
+    tr.className = 'fila-timeline';
+    tr.innerHTML = '<td colspan="8" style="padding-top:0; padding-bottom:12px;">' + construirTimelineHTML(r) + '</td>';
+    return tr;
+}
+
+function crearFilaTramo(c) {
+    const tr = document.createElement('tr');
+    tr.className = 'fila-tramo';
+    const duracion = (c.fin - c.inicio) / 3600000;
+    tr.innerHTML =
+        '<td colspan="8">' +
+            '<span class="tramo-punto">' + esc(c.zonaNombre) + '</span>' +
+            '<span style="color:#8892a0; margin-left:10px;">' + formatFechaHora(c.inicio) + ' \u2192 ' + formatFechaHora(c.fin) + '</span>' +
+            '<span style="font-weight:700; color:#002d72; margin-left:10px;">' + formatHoras(duracion) + '</span>' +
+        '</td>';
+    return tr;
+}
+
+// ---------------- KPIs ----------------
+
+function actualizarKPIs() {
+    const lista = filtrarDatos(rondasData);
+    const cerradas = lista.filter(function (r) { return r.cerrada; });
+    const enCurso = lista.filter(function (r) { return !r.cerrada; });
+
+    const promedio = cerradas.length ? cerradas.reduce(function (s, r) { return s + r.duracionHoras; }, 0) / cerradas.length : 0;
+    const excedidas = lista.filter(function (r) { return r.semaforo === 'ROJO'; }).length;
+
+    const mapaCD = {};
+    lista.forEach(function (r) {
+        r.cds.forEach(function (c) {
+            const key = c.zonaNombre;
+            if (!mapaCD[key]) mapaCD[key] = { suma: 0, cantidad: 0 };
+            mapaCD[key].suma += (c.fin - c.inicio) / 3600000;
+            mapaCD[key].cantidad += 1;
+        });
+    });
+    let topCD = '--';
+    let mejorProm = -1;
+    Object.keys(mapaCD).forEach(function (k) {
+        const prom = mapaCD[k].suma / mapaCD[k].cantidad;
+        if (prom > mejorProm) { mejorProm = prom; topCD = k + ' (' + formatHoras(prom) + ')'; }
+    });
+
+    document.getElementById('kpi-terminadas').innerText = cerradas.length;
+    document.getElementById('kpi-encurso').innerText = enCurso.length;
+    document.getElementById('kpi-promedio').innerText = cerradas.length ? formatHoras(promedio) : '--';
+    document.getElementById('kpi-excedidas').innerText = excedidas;
+    document.getElementById('kpi-topcd').innerText = topCD;
+}
+
+// ---------------- Panel lateral (rankings) ----------------
+
+function renderizarPanelLateral() {
+    const lista = filtrarDatos(rondasData);
+    document.getElementById('panel-lateral').style.display = lista.length ? 'flex' : 'none';
+    if (lista.length === 0) return;
+
+    // Top CDs por tiempo total de espera
+    const mapaCD = {};
+    lista.forEach(function (r) {
+        r.cds.forEach(function (c) {
+            const key = c.zonaNombre;
+            mapaCD[key] = (mapaCD[key] || 0) + (c.fin - c.inicio) / 3600000;
+        });
+    });
+    pintarRanking('ranking-cds', mapaCD, formatHoras);
+
+    // Rondas mas largas (cerradas)
+    const cerradas = lista.filter(function (r) { return r.cerrada; })
+        .slice().sort(function (a, b) { return b.duracionHoras - a.duracionHoras; }).slice(0, 5);
+    const contRondas = document.getElementById('ranking-rondas');
+    if (cerradas.length === 0) {
+        contRondas.innerHTML = '<div class="ranking-vacio">Sin rondas terminadas a\u00fan.</div>';
+    } else {
+        contRondas.innerHTML = cerradas.map(function (r) {
+            return '<div class="ranking-fila"><span class="ranking-nombre">' + esc(r.disp.name) + '</span><span class="ranking-valor">' + formatHoras(r.duracionHoras) + '</span></div>';
+        }).join('');
+    }
+
+    // Rutas mas lentas (promedio de esta consulta, por firma)
+    const mapaRuta = {};
+    lista.filter(function (r) { return r.cerrada && r.cds.length; }).forEach(function (r) {
+        const f = r.firma || firmaRuta(r);
+        if (!mapaRuta[f]) mapaRuta[f] = { suma: 0, cantidad: 0 };
+        mapaRuta[f].suma += r.duracionHoras;
+        mapaRuta[f].cantidad += 1;
+    });
+    const promediosRuta = {};
+    Object.keys(mapaRuta).forEach(function (k) { promediosRuta[k] = mapaRuta[k].suma / mapaRuta[k].cantidad; });
+    pintarRanking('ranking-rutas', promediosRuta, formatHoras);
+}
+
+function pintarRanking(elId, mapaValores, formateador) {
+    const cont = document.getElementById(elId);
+    const claves = Object.keys(mapaValores).sort(function (a, b) { return mapaValores[b] - mapaValores[a]; }).slice(0, 5);
+    if (claves.length === 0) { cont.innerHTML = '<div class="ranking-vacio">Sin datos.</div>'; return; }
+    cont.innerHTML = claves.map(function (k) {
+        return '<div class="ranking-fila"><span class="ranking-nombre" title="' + esc(k) + '">' + esc(k) + '</span><span class="ranking-valor">' + formateador(mapaValores[k]) + '</span></div>';
+    }).join('');
+}
+
+// ---------------- Progreso ----------------
+
+function mostrarProgreso(on, texto) {
+    document.getElementById('progreso-wrap').style.display = on ? 'block' : 'none';
+    if (texto) document.getElementById('progreso-texto').innerText = texto;
+    if (!on) document.getElementById('progreso-bar-fill').style.width = '0%';
+}
+
+function actualizarProgreso(actual, total, texto) {
+    document.getElementById('progreso-texto').innerText = texto;
+    const pct = total > 0 ? Math.min(100, (actual / total) * 100) : 0;
+    document.getElementById('progreso-bar-fill').style.width = pct + '%';
+}
+
+// ---------------- Menu de exportar ----------------
+
+function toggleMenuExportar() {
+    document.getElementById('combo-exportar-lista').classList.toggle('open');
+}
+document.addEventListener('click', function (e) {
+    const combo = document.getElementById('combo-exportar');
+    if (combo && !combo.contains(e.target)) document.getElementById('combo-exportar-lista').classList.remove('open');
+});
+
+// ---------------- Minimapa de la ronda ----------------
+
+function abrirModalMapa(rIndex) {
+    const lista = filtrarDatos(rondasData);
+    const r = lista[rIndex];
+    if (!r) return;
+
+    document.getElementById('modal-mapa-titulo').innerText = r.disp.name + ' \u2014 ' + (r.firma || firmaRuta(r) || 'Ruta');
+    document.getElementById('modal-mapa-overlay').style.display = 'flex';
+
+    setTimeout(function () {
+        const puntos = r.cds.filter(function (c) { return c.lat != null && c.lon != null; }).map(function (c) { return { lat: c.lat, lon: c.lon, nombre: c.zonaNombre }; });
+        if (mapaLeaflet) { mapaLeaflet.remove(); mapaLeaflet = null; }
+        const contenedor = document.getElementById('mapa-ronda');
+        if (puntos.length === 0) { contenedor.innerHTML = '<div style="padding:40px;text-align:center;color:#9aa4b2;">Sin coordenadas disponibles para esta ronda.</div>'; return; }
+
+        mapaLeaflet = L.map('mapa-ronda').setView([puntos[0].lat, puntos[0].lon], 8);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(mapaLeaflet);
+
+        const latlngs = puntos.map(function (p) { return [p.lat, p.lon]; });
+        puntos.forEach(function (p, i) {
+            L.marker([p.lat, p.lon]).addTo(mapaLeaflet).bindPopup((i + 1) + '. ' + esc(p.nombre));
+        });
+        L.polyline(latlngs, { color: '#002d72', weight: 3 }).addTo(mapaLeaflet);
+        mapaLeaflet.fitBounds(latlngs, { padding: [30, 30] });
+    }, 50);
+}
+
+function cerrarModalMapa() {
+    document.getElementById('modal-mapa-overlay').style.display = 'none';
+    if (mapaLeaflet) { mapaLeaflet.remove(); mapaLeaflet = null; }
+}
+
+// ---------------- Exportar a Excel (ExcelJS: mismo formato que Horas de Conduccion) ----------------
+
+function exportarExcel(modo) {
+    document.getElementById('combo-exportar-lista').classList.remove('open');
+    const lista = filtrarDatos(rondasData);
+    if (lista.length === 0) { alert('No hay datos para exportar. Consulta primero.'); return; }
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'ARDEPE';
+    const nombreHoja = modo === 'resumen' ? 'Resumen' : 'Detalle';
+    const ws = wb.addWorksheet(nombreHoja, { views: [{ state: 'frozen', ySplit: 1 }] });
+
+    let encabezados, filas, colsHoras;
+
+    if (modo === 'resumen') {
+        encabezados = ['Conductor', 'Placa', 'Flota', 'Ruta', 'Salida Planta', 'Retorno Planta', 'Duraci\u00f3n Total', 'Estado'];
+        colsHoras = [7];
+        filas = lista.map(function (r) {
+            const nombre = mapaConductoresGlobal[r.driverId] || (r.driverId || 'SIN CONDUCTOR');
+            const ruta = r.cds.length ? r.cds.map(function (c) { return c.zonaNombre; }).join(' -> ') : (r.sinSalidaConocida ? 'Ronda incompleta' : 'Directo');
+            const estado = calcularEstado(r).texto;
+            return [
+                nombre, r.disp.name, r.flota, ruta,
+                r.salida ? formatFechaHora(r.salida) : '',
+                r.retorno ? formatFechaHora(r.retorno) : '',
+                r.cerrada ? (r.duracionHoras / 24) : null,
+                estado
+            ];
+        });
+    } else {
+        encabezados = ['Conductor', 'Placa', 'Flota', 'CD', 'Ingreso', 'Salida', 'Duraci\u00f3n en CD'];
+        colsHoras = [7];
+        filas = [];
+        lista.forEach(function (r) {
+            const nombre = mapaConductoresGlobal[r.driverId] || (r.driverId || 'SIN CONDUCTOR');
+            if (r.cds.length === 0) {
+                filas.push([nombre, r.disp.name, r.flota, '(sin CDs visitadas)', '', '', null]);
+            } else {
+                r.cds.forEach(function (c) {
+                    filas.push([nombre, r.disp.name, r.flota, c.zonaNombre, formatFechaHora(c.inicio), formatFechaHora(c.fin), (c.fin - c.inicio) / 3600000 / 24]);
+                });
+            }
+        });
+    }
+
+    const anchos = modo === 'resumen' ? [26, 16, 12, 34, 20, 20, 14, 30] : [26, 16, 12, 22, 20, 20, 16];
+    anchos.forEach(function (w, i) { ws.getColumn(i + 1).width = w; });
+
+    const headerRow = ws.addRow(encabezados);
+    headerRow.eachCell(function (cell) {
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF002D72' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+            top: { style: 'thin', color: { argb: 'FF001A44' } }, bottom: { style: 'thin', color: { argb: 'FF001A44' } },
+            left: { style: 'thin', color: { argb: 'FF001A44' } }, right: { style: 'thin', color: { argb: 'FF001A44' } }
+        };
+    });
+    headerRow.height = 20;
+    colsHoras.forEach(function (col) { ws.getColumn(col).numFmt = '[h]:mm'; });
+
+    filas.forEach(function (fila, ri) {
+        const row = ws.addRow(fila);
+        const esAlterna = (ri % 2 === 0);
+        row.eachCell(function (cell) {
+            cell.font = { size: 10 };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: esAlterna ? 'FFEDF3FB' : 'FFFFFFFF' } };
+            cell.border = {
+                top: { style: 'hair', color: { argb: 'FFDEE2E6' } }, bottom: { style: 'hair', color: { argb: 'FFDEE2E6' } },
+                left: { style: 'hair', color: { argb: 'FFDEE2E6' } }, right: { style: 'hair', color: { argb: 'FFDEE2E6' } }
+            };
+            cell.alignment = { vertical: 'middle' };
+        });
+        colsHoras.forEach(function (col) { row.getCell(col).alignment = { horizontal: 'center', vertical: 'middle' }; });
+        row.height = 16;
+    });
+
+    if (filas.length > 0) {
+        ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1 + filas.length, column: encabezados.length } };
+    }
+
+    const fechaArchivo = new Date().toISOString().slice(0, 10);
+    wb.xlsx.writeBuffer().then(function (buffer) {
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'LeadTime_CD_ARDEPE_' + modo + '_' + fechaArchivo + '.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+}
+
+
+
+
+</script>
 </body>
 </html>
