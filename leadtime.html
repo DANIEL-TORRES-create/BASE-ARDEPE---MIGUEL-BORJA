@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=2">
+    <link rel="stylesheet" href="leadtime.css?v=3">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -111,11 +111,7 @@
         </div>
     </div><!-- /sticky-header -->
 
-    <!-- Pestanas -->
-    <div class="tabs-bar">
-        <button class="tab-btn active" id="tab-btn-detalle" onclick="cambiarPestana('detalle')">Detalle</button>
-        <button class="tab-btn" id="tab-btn-resumen" onclick="cambiarPestana('resumen')">Resumen por Viaje</button>
-    </div>
+    <h3 class="titulo-seccion">Comportamiento de Viajes</h3>
 
     <!-- Panel lateral de rankings -->
     <div class="panel-lateral" id="panel-lateral" style="display:none;">
@@ -129,48 +125,26 @@
         </div>
     </div>
 
-    <!-- PESTANA 1: Detalle (tabla plana, un tramo por fila, como el Excel) -->
-    <div id="vista-detalle" class="vista-tab">
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Placa</th>
-                        <th>Conductor</th>
-                        <th onclick="ordenarPorDetalle('salida')" style="cursor:pointer;">Fecha y hora de salida</th>
-                        <th>Punto de salida</th>
-                        <th onclick="ordenarPorDetalle('llegada')" style="cursor:pointer;">Fecha y hora de llegada</th>
-                        <th>Punto de llegada</th>
-                        <th>Duraci&oacute;n</th>
-                    </tr>
-                </thead>
-                <tbody id="tbody-detalle">
-                    <tr><td colspan="7" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- PESTANA 2: Resumen por Viaje (una fila = Pucusana -> Pucusana, clic abre panel lateral) -->
-    <div id="vista-resumen" class="vista-tab" style="display:none;">
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Placa</th>
-                        <th>Conductor</th>
-                        <th>Flota</th>
-                        <th onclick="ordenarPorResumen('salida')" style="cursor:pointer;">Salida Planta</th>
-                        <th>Retorno Planta</th>
-                        <th onclick="ordenarPorResumen('duracion')" style="cursor:pointer;">Duraci&oacute;n Total</th>
-                        <th>Estado</th>
-                    </tr>
-                </thead>
-                <tbody id="tbody-resumen">
-                    <tr><td colspan="7" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
-                </tbody>
-            </table>
-        </div>
+    <!-- Nivel 1: Placa (agrupa todos sus viajes). Clic despliega Nivel 2: cada viaje
+         individual. Clic en un viaje abre el panel lateral con el detalle de la ruta. -->
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Placa</th>
+                    <th>Conductor</th>
+                    <th>Punto de Partida</th>
+                    <th>Fecha de Salida</th>
+                    <th>Punto de Llegada</th>
+                    <th>Fecha de Llegada</th>
+                    <th>Duraci&oacute;n</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody id="tbody-resumen">
+                <tr><td colspan="8" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
+            </tbody>
+        </table>
     </div>
 
     <!-- Barra de progreso -->
@@ -554,7 +528,7 @@ async function consultar() {
         const dispositivos = await obtenerDispositivos();
         if (dispositivos.length === 0) {
             rondasData = [];
-            renderizarVistaActiva();
+            renderizarComportamiento();
             actualizarKPIs();
             return;
         }
@@ -574,6 +548,9 @@ async function consultar() {
             if (i + BLOQUE_DISPOSITIVOS < dispositivos.length) await sleep(PAUSA_MS);
         }
 
+        actualizarProgreso(dispositivos.length, dispositivos.length, 'Buscando inicio real de viajes incompletos (hasta 72h atr\u00e1s)...');
+        await completarViajesIncompletos(todasLasRondas);
+
         actualizarProgreso(dispositivos.length, dispositivos.length, 'Verificando estado en vivo de rondas abiertas...');
         await resolverEstadosEnVivo(todasLasRondas, toDate);
 
@@ -581,15 +558,14 @@ async function consultar() {
         calcularDuraciones(todasLasRondas);
 
         rondasData = todasLasRondas;
-        renderizarVistaActiva();
+        renderizarComportamiento();
         actualizarKPIs();
         renderizarPanelLateral();
 
     } catch (e) {
         console.error(e);
         rondasData = [];
-        document.getElementById('tbody-detalle').innerHTML = '<tr><td colspan="7" class="estado-tabla" style="color:#c0392b;">Error al consultar la API: ' + esc(e && e.message ? e.message : String(e)) + '</td></tr>';
-        document.getElementById('tbody-resumen').innerHTML = '<tr><td colspan="7" class="estado-tabla" style="color:#c0392b;">Error al consultar la API: ' + esc(e && e.message ? e.message : String(e)) + '</td></tr>';
+        document.getElementById('tbody-resumen').innerHTML = '<tr><td colspan="8" class="estado-tabla" style="color:#c0392b;">Error al consultar la API: ' + esc(e && e.message ? e.message : String(e)) + '</td></tr>';
     } finally {
         btn.disabled = false;
         btn.innerText = '\uD83D\uDD0D Consultar';
@@ -865,30 +841,7 @@ function calcularEstado(r) {
 
 // ---------------- Linea de tiempo visual ----------------
 
-// ---------------- Estado global de pestanas y orden ----------------
-
-let pestanaActiva = 'detalle';
-let claveOrdenDetalle = 'salida';
-let ordenAscDetalle = false;
-let claveOrdenResumen = 'salida';
-let ordenAscResumen = false;
-let rondasFiltradasActuales = []; // lista actualmente mostrada en la pestana Resumen (para el panel lateral)
-let panelViajeIdxActual = -1;
-
-function cambiarPestana(nombre) {
-    pestanaActiva = nombre;
-    document.getElementById('tab-btn-detalle').classList.toggle('active', nombre === 'detalle');
-    document.getElementById('tab-btn-resumen').classList.toggle('active', nombre === 'resumen');
-    document.getElementById('vista-detalle').style.display = nombre === 'detalle' ? 'block' : 'none';
-    document.getElementById('vista-resumen').style.display = nombre === 'resumen' ? 'block' : 'none';
-    renderizarVistaActiva();
-}
-
-function renderizarVistaActiva() {
-    if (pestanaActiva === 'detalle') renderizarDetalle(); else renderizarResumen();
-}
-
-// ---------------- Filtros (comunes a ambas pestanas) ----------------
+// ---------------- Filtros ----------------
 
 function filtrarDatos(lista) {
     const fFlota = document.getElementById('filtro-flota').value;
@@ -906,7 +859,7 @@ function filtrarDatos(lista) {
     });
 }
 
-function filtrosCambiaron() { renderizarVistaActiva(); actualizarKPIs(); renderizarPanelLateral(); }
+function filtrosCambiaron() { renderizarComportamiento(); actualizarKPIs(); renderizarPanelLateral(); }
 
 function mostrarEstadoVacio(tbodyId, colspan, mensaje, diagnostico) {
     let html = '<tr><td colspan="' + colspan + '" class="estado-tabla">' + esc(mensaje);
@@ -923,128 +876,173 @@ function mostrarEstadoVacio(tbodyId, colspan, mensaje, diagnostico) {
     document.getElementById(tbodyId).innerHTML = html;
 }
 
-// ---------------- PESTANA 1: Detalle (tabla plana, 1 tramo por fila) ----------------
-
-// Aplana TODAS las rondas en tramos individuales (parada[i] -> parada[i+1]), incluyendo
-// los tramos Planta->CD y CD->Planta -- exactamente el mismo formato que el Excel de origen.
-function construirTramosPlanos(rondasFiltradas) {
-    const tramos = [];
-    rondasFiltradas.forEach(function (r) {
-        for (let i = 0; i < r.paradas.length - 1; i++) {
-            const a = r.paradas[i], b = r.paradas[i + 1];
-            if (!a.salida || !b.entrada) continue;
-            tramos.push({
-                disp: r.disp, driverId: r.driverId,
-                salida: a.salida, puntoSalida: a.zona,
-                llegada: b.entrada, puntoLlegada: b.zona,
-                duracionHoras: (b.entrada - a.salida) / 3600000
-            });
-        }
-    });
-    return tramos;
-}
-
-function ordenarPorDetalle(clave) {
-    if (claveOrdenDetalle === clave) ordenAscDetalle = !ordenAscDetalle; else { claveOrdenDetalle = clave; ordenAscDetalle = false; }
-    renderizarDetalle();
-}
-
-function renderizarDetalle() {
-    const lista = filtrarDatos(rondasData);
-    let tramos = construirTramosPlanos(lista);
-
-    if (tramos.length === 0) {
-        mostrarEstadoVacio('tbody-detalle', 7, 'No hay tramos para los filtros aplicados.', true);
-        return;
+// ---------------- Info de llegada (usada por Nivel 1 y Nivel 2 por igual, para que
+// nunca se contradigan entre si) ----------------
+// Devuelve {zona, fecha, duracionHoras, guion} describiendo donde "llego" un viaje:
+// - Si cerro: Planta Pucusana, con su hora de retorno real.
+// - Si esta abierto y en vivo moviendose: "En Ruta", guion (sin fecha/duracion aun).
+// - Si esta abierto y en vivo detenido fuera de cualquier CD: "Detenido en Ruta", guion.
+// - Si esta abierto y en vivo detenido en una CD: esa CD, con duracion hasta ahora.
+// - Si esta abierto pero el filtro es historico (sin verificacion en vivo): la ultima
+//   CD conocida segun el corte, con su propia hora de entrada.
+function obtenerInfoLlegada(viaje) {
+    if (viaje.cerrada) {
+        return { zona: 'Planta Pucusana', fecha: viaje.retorno, duracionHoras: viaje.duracionHoras, guion: false };
     }
 
-    tramos.sort(function (a, b) {
-        const va = claveOrdenDetalle === 'llegada' ? a.llegada : a.salida;
-        const vb = claveOrdenDetalle === 'llegada' ? b.llegada : b.salida;
-        const cmp = va > vb ? 1 : (va < vb ? -1 : 0);
-        return ordenAscDetalle ? cmp : -cmp;
-    });
+    const inicioParaCalculo = viaje.salida || (viaje.paradas[0] && viaje.paradas[0].entrada);
 
-    document.getElementById('tbody-detalle').innerHTML = tramos.map(function (t) {
-        const nombre = mapaConductoresGlobal[t.driverId] || (t.driverId || 'SIN CONDUCTOR');
-        return '<tr>' +
-            '<td class="celda-placa">' + esc(t.disp.name) + '</td>' +
-            '<td>' + esc(nombre) + '</td>' +
-            '<td style="font-size:11.5px;">' + formatFechaHora(t.salida) + '</td>' +
-            '<td>' + esc(t.puntoSalida) + '</td>' +
-            '<td style="font-size:11.5px;">' + formatFechaHora(t.llegada) + '</td>' +
-            '<td>' + esc(t.puntoLlegada) + '</td>' +
-            '<td style="font-weight:700;">' + formatHoras(t.duracionHoras) + '</td>' +
-            '</tr>';
-    }).join('');
+    if (viaje.estadoVivo === 'EN_RUTA') {
+        return { zona: 'En Ruta', fecha: null, duracionHoras: null, guion: true };
+    }
+    if (viaje.estadoVivo === 'DETENIDO_EN_RUTA') {
+        return { zona: 'Detenido en Ruta', fecha: null, duracionHoras: null, guion: true };
+    }
+    if (viaje.estadoVivo === 'EN_CD') {
+        const ahora = new Date();
+        const dur = inicioParaCalculo ? (ahora - inicioParaCalculo) / 3600000 : null;
+        return { zona: viaje.cdActualVivo, fecha: ahora, duracionHoras: dur, guion: false };
+    }
+    if (viaje.corteHistorico) {
+        const ultimaCD = viaje.cds.length ? viaje.cds[viaje.cds.length - 1] : null;
+        if (ultimaCD) {
+            const dur = inicioParaCalculo ? (ultimaCD.entrada - inicioParaCalculo) / 3600000 : null;
+            return { zona: ultimaCD.zona, fecha: ultimaCD.entrada, duracionHoras: dur, guion: false };
+        }
+        return { zona: null, fecha: null, duracionHoras: null, guion: true };
+    }
+    return { zona: null, fecha: null, duracionHoras: null, guion: true };
 }
 
-// ---------------- PESTANA 2: Resumen por Viaje (1 fila = Planta -> Planta) ----------------
+// ---------------- Nivel 1 + Nivel 2: agrupar viajes por Placa ----------------
 
-function asignarNumeroDeViaje(lista) {
-    const porPlaca = {};
+let estadoAbiertoPorPlaca = {}; // dispositivoId -> bool (se conserva entre re-renders)
+let gruposActuales = [];
+let rondasFiltradasActuales = []; // lista PLANA de viajes en el orden visible (para el panel lateral)
+
+function agruparPorPlaca(lista) {
+    const grupos = {};
     lista.forEach(function (r) {
         const key = r.disp.id;
-        if (!porPlaca[key]) porPlaca[key] = [];
-        porPlaca[key].push(r);
+        if (!grupos[key]) grupos[key] = { disp: r.disp, flota: r.flota, viajes: [] };
+        grupos[key].viajes.push(r);
     });
-    Object.keys(porPlaca).forEach(function (key) {
-        const viajes = porPlaca[key];
-        if (viajes.length <= 1) { viajes.forEach(function (r) { r.numeroViaje = null; }); return; }
-        viajes.sort(function (a, b) { return (a.salida || (a.paradas[0] && a.paradas[0].entrada) || 0) - (b.salida || (b.paradas[0] && b.paradas[0].entrada) || 0); });
-        viajes.forEach(function (r, i) { r.numeroViaje = i + 1; });
+
+    const resultado = Object.values(grupos);
+    resultado.forEach(function (g) {
+        g.viajes.sort(function (a, b) {
+            const va = a.salida || (a.paradas[0] && a.paradas[0].entrada) || 0;
+            const vb = b.salida || (b.paradas[0] && b.paradas[0].entrada) || 0;
+            return va - vb;
+        });
+
+        const idsConductor = g.viajes.map(function (v) { return v.driverId; }).filter(Boolean);
+        const idsUnicos = idsConductor.filter(function (v, i, a) { return a.indexOf(v) === i; });
+        g.conductorTexto = idsUnicos.length === 0 ? 'SIN CONDUCTOR'
+            : (idsUnicos.length === 1 ? (mapaConductoresGlobal[idsUnicos[0]] || idsUnicos[0]) : 'Varios conductores');
+
+        const primerViaje = g.viajes[0];
+        g.zonaPartida = (primerViaje.paradas[0] && primerViaje.paradas[0].zona) || (primerViaje.sinSalidaConocida ? 'Desconocido' : 'Planta Pucusana');
+        g.primeraSalida = primerViaje.salida || (primerViaje.paradas[0] && primerViaje.paradas[0].entrada);
+
+        const ultimoViaje = g.viajes[g.viajes.length - 1];
+        const info = obtenerInfoLlegada(ultimoViaje);
+        g.zonaLlegada = info.zona;
+        g.fechaLlegada = info.fecha;
+        g.guionLlegada = info.guion;
+        g.duracionHoras = (!info.guion && g.primeraSalida && info.fecha) ? (info.fecha - g.primeraSalida) / 3600000 : null;
+
+        g.estadoUltimo = calcularEstado(ultimoViaje);
+        g.abierto = !!estadoAbiertoPorPlaca[g.disp.id];
     });
+
+    return resultado;
 }
 
-function ordenarPorResumen(clave) {
-    if (claveOrdenResumen === clave) ordenAscResumen = !ordenAscResumen; else { claveOrdenResumen = clave; ordenAscResumen = false; }
-    renderizarResumen();
+function toggleGrupoPlaca(dispId) {
+    estadoAbiertoPorPlaca[dispId] = !estadoAbiertoPorPlaca[dispId];
+    renderizarComportamiento();
 }
 
-function renderizarResumen() {
-    let lista = filtrarDatos(rondasData);
+function renderizarComportamiento() {
+    const lista = filtrarDatos(rondasData);
 
     if (lista.length === 0) {
-        mostrarEstadoVacio('tbody-resumen', 7, 'No hay viajes para los filtros aplicados.', true);
+        mostrarEstadoVacio('tbody-resumen', 8, 'No hay viajes para los filtros aplicados.', true);
+        gruposActuales = [];
         rondasFiltradasActuales = [];
         return;
     }
 
-    asignarNumeroDeViaje(lista);
+    let grupos = agruparPorPlaca(lista);
+    grupos.sort(function (a, b) { return (a.primeraSalida || 0) - (b.primeraSalida || 0); });
 
-    lista = lista.slice().sort(function (a, b) {
-        let va, vb;
-        if (claveOrdenResumen === 'duracion') { va = a.duracionHoras || 0; vb = b.duracionHoras || 0; }
-        else { va = a.salida || (a.paradas[0] && a.paradas[0].entrada) || 0; vb = b.salida || (b.paradas[0] && b.paradas[0].entrada) || 0; }
-        const cmp = va > vb ? 1 : (va < vb ? -1 : 0);
-        return ordenAscResumen ? cmp : -cmp;
+    gruposActuales = grupos;
+    rondasFiltradasActuales = [];
+
+    let html = '';
+    grupos.forEach(function (g) {
+        html += crearFilaPlaca(g);
+        if (g.abierto) {
+            g.viajes.forEach(function (v) {
+                const flatIdx = rondasFiltradasActuales.length;
+                rondasFiltradasActuales.push(v);
+                html += crearFilaSubViaje(v, flatIdx);
+            });
+        }
     });
 
-    rondasFiltradasActuales = lista;
+    document.getElementById('tbody-resumen').innerHTML = html;
+}
 
-    document.getElementById('tbody-resumen').innerHTML = lista.map(function (r, idx) {
-        const nombre = mapaConductoresGlobal[r.driverId] || (r.driverId || 'SIN CONDUCTOR');
-        const badgeFlota = r.flota === 'LOCAL' ? '<span class="badge badge-local">LOCAL</span>' : '<span class="badge badge-provincia">PROVINCIA</span>';
-        const estado = calcularEstado(r);
-        const salidaTxt = r.salida ? formatFechaHora(r.salida) : '<span style="color:#9aa4b2;">&#8212;</span>';
-        const retornoTxt = r.retorno ? formatFechaHora(r.retorno) : '<span style="color:#9aa4b2;">&#8212;</span>';
-        const duracionTxt = r.cerrada
-            ? (formatHoras(r.duracionHoras) + (r.sinSalidaConocida ? ' <span title="Salida real fuera del filtro: es un minimo, no el tiempo total real" style="color:#c0392b;">*</span>' : ''))
-            : '<span style="color:#9aa4b2;">&#8212;</span>';
+function crearFilaPlaca(g) {
+    const duracionTxt = (g.duracionHoras != null) ? formatHoras(g.duracionHoras) : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const primeraSalidaTxt = g.primeraSalida ? formatFechaHora(g.primeraSalida) : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const zonaLlegadaTxt = g.zonaLlegada ? esc(g.zonaLlegada) : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const fechaLlegadaTxt = (g.fechaLlegada && !g.guionLlegada) ? formatFechaHora(g.fechaLlegada) : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const nViajes = g.viajes.length;
 
-        return '<tr class="fila-resumen" onclick="abrirPanelViaje(' + idx + ')">' +
-            '<td class="celda-placa">' + esc(r.disp.name) + (r.numeroViaje ? ' <span class="badge-viaje-numero">Viaje ' + r.numeroViaje + '</span>' : '') + '</td>' +
-            '<td>' + esc(nombre) + '</td>' +
-            '<td>' + badgeFlota + '</td>' +
-            '<td style="font-size:11.5px;">' + salidaTxt + '</td>' +
-            '<td style="font-size:11.5px;">' + retornoTxt + '</td>' +
-            '<td style="font-weight:700;">' + duracionTxt + '</td>' +
-            '<td><span class="badge ' + estado.clase + '">' + esc(estado.texto) + '</span></td>' +
-            '</tr>';
-    }).join('');
+    return '<tr class="fila-placa" onclick="toggleGrupoPlaca(\'' + g.disp.id + '\')">' +
+        '<td><span class="expand-icon ' + (g.abierto ? 'abierto' : '') + '">&#9654;</span><span class="celda-placa">' + esc(g.disp.name) + '</span><div class="ronda-meta">' + nViajes + ' viaje' + (nViajes !== 1 ? 's' : '') + '</div></td>' +
+        '<td>' + esc(g.conductorTexto) + '</td>' +
+        '<td>' + esc(g.zonaPartida) + '</td>' +
+        '<td style="font-size:11.5px;">' + primeraSalidaTxt + '</td>' +
+        '<td>' + zonaLlegadaTxt + '</td>' +
+        '<td style="font-size:11.5px;">' + fechaLlegadaTxt + '</td>' +
+        '<td style="font-weight:700;">' + duracionTxt + '</td>' +
+        '<td><span class="badge ' + g.estadoUltimo.clase + '">' + esc(g.estadoUltimo.texto) + '</span></td>' +
+        '</tr>';
+}
+
+function crearFilaSubViaje(v, flatIdx) {
+    const nombre = mapaConductoresGlobal[v.driverId] || (v.driverId || 'SIN CONDUCTOR');
+    const primeraParada = v.paradas[0];
+    const puntoPartida = primeraParada ? primeraParada.zona : (v.sinSalidaConocida ? 'Desconocido' : 'Planta Pucusana');
+    const fechaSalidaTxt = v.salida ? formatFechaHora(v.salida) : (primeraParada ? formatFechaHora(primeraParada.entrada) : '<span style="color:#9aa4b2;">&#8212;</span>');
+
+    const info = obtenerInfoLlegada(v);
+    const puntoLlegadaTxt = info.zona ? esc(info.zona) : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const fechaLlegadaTxt = (info.fecha && !info.guion) ? formatFechaHora(info.fecha) : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const duracionTxt = (info.duracionHoras != null)
+        ? (formatHoras(info.duracionHoras) + (v.sinSalidaConocida ? ' <span style="color:#c0392b;" title="Salida real fuera del filtro: minimo, no el tiempo total real">*</span>' : ''))
+        : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const estado = calcularEstado(v);
+
+    return '<tr class="fila-subviaje" onclick="event.stopPropagation(); abrirPanelViaje(' + flatIdx + ')">' +
+        '<td style="padding-left:34px;" class="celda-placa">' + esc(v.disp.name) + '</td>' +
+        '<td>' + esc(nombre) + '</td>' +
+        '<td>' + esc(puntoPartida) + '</td>' +
+        '<td style="font-size:11.5px;">' + fechaSalidaTxt + '</td>' +
+        '<td>' + puntoLlegadaTxt + '</td>' +
+        '<td style="font-size:11.5px;">' + fechaLlegadaTxt + '</td>' +
+        '<td style="font-weight:700;">' + duracionTxt + '</td>' +
+        '<td><span class="badge ' + estado.clase + '">' + esc(estado.texto) + '</span></td>' +
+        '</tr>';
 }
 
 // ---------------- Panel lateral: detalle de un viaje (linea de tiempo vertical) ----------------
+
+let panelViajeIdxActual = -1;
 
 function abrirPanelViaje(idx) {
     const r = rondasFiltradasActuales[idx];
@@ -1058,7 +1056,7 @@ function abrirPanelViaje(idx) {
     document.getElementById('sp-meta').innerHTML =
         '<div class="sp-meta-fila"><span>Conductor</span><b>' + esc(nombre) + '</b></div>' +
         '<div class="sp-meta-fila"><span>Flota</span><b>' + esc(r.flota) + '</b></div>' +
-        '<div class="sp-meta-fila"><span>Duración total</span><b>' + (r.cerrada ? formatHoras(r.duracionHoras) : '—') + '</b></div>' +
+        '<div class="sp-meta-fila"><span>Duraci\u00f3n total</span><b>' + (r.cerrada ? formatHoras(r.duracionHoras) : '\u2014') + '</b></div>' +
         '<div class="sp-meta-fila"><span>Estado</span><span class="badge ' + estado.clase + '">' + esc(estado.texto) + '</span></div>';
 
     document.getElementById('sp-timeline').innerHTML = construirTimelineVertical(r);
@@ -1088,7 +1086,7 @@ function construirTimelineVertical(r) {
         if (!esFinReal) {
             const salidaTxt = p.salida ? formatFechaHora(p.salida) : '<span style="color:#9aa4b2;">&#8212;</span>';
             cuerpo += '<div class="tl-horas">Salida: <b>' + salidaTxt + '</b></div>';
-            if (p.salida) cuerpo += '<div class="tl-dur">Detenido aquí: ' + formatHoras((p.salida - p.entrada) / 3600000) + '</div>';
+            if (p.salida) cuerpo += '<div class="tl-dur">Detenido aqu\u00ed: ' + formatHoras((p.salida - p.entrada) / 3600000) + '</div>';
         }
 
         return '<div class="tl-item">' +
@@ -1149,7 +1147,7 @@ function renderizarPanelLateral() {
         .slice().sort(function (a, b) { return b.duracionHoras - a.duracionHoras; }).slice(0, 5);
     const contRondas = document.getElementById('ranking-rondas');
     if (cerradas.length === 0) {
-        contRondas.innerHTML = '<div class="ranking-vacio">Sin viajes terminados aún.</div>';
+        contRondas.innerHTML = '<div class="ranking-vacio">Sin viajes terminados a\u00fan.</div>';
     } else {
         contRondas.innerHTML = cerradas.map(function (r) {
             return '<div class="ranking-fila"><span class="ranking-nombre">' + esc(r.disp.name) + '</span><span class="ranking-valor">' + formatHoras(r.duracionHoras) + '</span></div>';
@@ -1190,36 +1188,114 @@ document.addEventListener('click', function (e) {
     if (combo && !combo.contains(e.target)) document.getElementById('combo-exportar-lista').classList.remove('open');
 });
 
-// ---------------- Minimapa del viaje ----------------
+// ---------------- Busqueda hacia atras (72h) para viajes con inicio incompleto ----------------
+// Solo se dispara para el/los dispositivos puntuales que arrancaron directo en una CD (sin
+// haber visto su salida real de Planta dentro del filtro). Busca hacia atras, unicamente
+// para ESA unidad, hasta encontrar su ultima visita real a Planta Pucusana.
 
-function abrirModalMapaDesdePanel() {
-    if (panelViajeIdxActual < 0) return;
-    abrirModalMapa(panelViajeIdxActual);
+const BUSQUEDA_ATRAS_HORAS = 72;
+
+async function buscarSalidaPlantaAnterior(disp, antesDeFecha) {
+    const desde = new Date(antesDeFecha.getTime() - BUSQUEDA_ATRAS_HORAS * 3600000);
+    const eventos = await obtenerEventosConReintento(disp, desde.toISOString(), antesDeFecha.toISOString());
+    if (eventos.length === 0) return null;
+
+    const logs = await obtenerLogRecordConReintento(disp.id, desde.toISOString(), antesDeFecha.toISOString());
+
+    const candidatos = eventos.map(function (ev) {
+        const inicio = new Date(ev.activeFrom);
+        const horas = duracionAHoras(ev.duration);
+        const fin = new Date(inicio.getTime() + horas * 3600000);
+        const punto = logMasCercano(logs, inicio.getTime());
+        const lat = punto ? punto.latitude : null;
+        const lon = punto ? punto.longitude : null;
+        const zona = resolverZonaPorCoord(lat, lon);
+        return { inicio: inicio, fin: fin, lat: lat, lon: lon, zonaNombre: zona ? zona.name : null, driverId: ev.driver ? ev.driver.id : null };
+    }).filter(function (e) { return e.zonaNombre && esPlanta(e.zonaNombre) && e.inicio < antesDeFecha; })
+      .sort(function (a, b) { return b.inicio - a.inicio; }); // mas reciente primero
+
+    return candidatos.length ? candidatos[0] : null;
 }
 
-function abrirModalMapa(rIndex) {
+async function completarViajesIncompletos(rondas) {
+    const incompletas = rondas.filter(function (r) { return r.sinSalidaConocida && r.paradas.length > 0; });
+    if (incompletas.length === 0) return;
+
+    for (let i = 0; i < incompletas.length; i++) {
+        const r = incompletas[i];
+        try {
+            const encontrada = await buscarSalidaPlantaAnterior(r.disp, r.paradas[0].entrada);
+            if (encontrada) {
+                const nuevaParada = { zona: encontrada.zonaNombre, entrada: encontrada.inicio, salida: encontrada.fin, lat: encontrada.lat, lon: encontrada.lon, driverId: r.driverId };
+                r.paradas.unshift(nuevaParada);
+                r.salida = nuevaParada.salida;
+                r.sinSalidaConocida = false;
+            }
+        } catch (e) {
+            console.error('Error buscando salida anterior para', r.disp.name, e);
+        }
+        if (i < incompletas.length - 1) await sleep(150);
+    }
+}
+
+// ---------------- Minimapa del viaje: ruta real (LogRecord) + zonas reales (poligonos) ----------------
+
+async function abrirModalMapaDesdePanel() {
+    if (panelViajeIdxActual < 0) return;
+    await abrirModalMapa(panelViajeIdxActual);
+}
+
+async function abrirModalMapa(rIndex) {
     const r = rondasFiltradasActuales[rIndex];
     if (!r) return;
 
-    document.getElementById('modal-mapa-titulo').innerText = r.disp.name + ' — ' + (r.firma || 'Ruta');
+    document.getElementById('modal-mapa-titulo').innerText = r.disp.name + ' \u2014 ' + (r.firma || 'Ruta');
     document.getElementById('modal-mapa-overlay').style.display = 'flex';
+    const contenedor = document.getElementById('mapa-ronda');
+    contenedor.innerHTML = '<div style="padding:60px;text-align:center;color:#8892a0;">Cargando ruta real...</div>';
 
-    setTimeout(function () {
-        const puntos = r.paradas.filter(function (p) { return p.lat != null && p.lon != null; }).map(function (p) { return { lat: p.lat, lon: p.lon, nombre: p.zona }; });
-        if (mapaLeaflet) { mapaLeaflet.remove(); mapaLeaflet = null; }
-        const contenedor = document.getElementById('mapa-ronda');
-        if (puntos.length === 0) { contenedor.innerHTML = '<div style="padding:40px;text-align:center;color:#9aa4b2;">Sin coordenadas disponibles para este viaje.</div>'; return; }
+    if (mapaLeaflet) { mapaLeaflet.remove(); mapaLeaflet = null; }
+    contenedor.innerHTML = '';
+    mapaLeaflet = L.map('mapa-ronda').setView([-12.05, -77.04], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(mapaLeaflet);
 
-        mapaLeaflet = L.map('mapa-ronda').setView([puntos[0].lat, puntos[0].lon], 8);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(mapaLeaflet);
+    // Zonas realmente visitadas en este viaje: se dibuja el POLIGONO real, no un punto.
+    const zonasEnViaje = [];
+    r.paradas.forEach(function (p) {
+        const zonaCompleta = zonasCD.find(function (z) { return z.name === p.zona; });
+        if (zonaCompleta && zonaCompleta.points && zonaCompleta.points.length >= 3 && zonasEnViaje.indexOf(zonaCompleta) === -1) {
+            zonasEnViaje.push(zonaCompleta);
+        }
+    });
+    const capasZonas = [];
+    zonasEnViaje.forEach(function (z) {
+        const color = esPlanta(z.name) ? '#002d72' : '#16a34a';
+        const capa = L.polygon(z.points.map(function (p) { return [p.y, p.x]; }), { color: color, fillColor: color, weight: 2, fillOpacity: 0.28 })
+            .addTo(mapaLeaflet).bindPopup(esc(z.name));
+        capasZonas.push(capa);
+    });
 
-        const latlngs = puntos.map(function (p) { return [p.lat, p.lon]; });
-        puntos.forEach(function (p, i) {
-            L.marker([p.lat, p.lon]).addTo(mapaLeaflet).bindPopup((i + 1) + '. ' + esc(p.nombre));
-        });
-        L.polyline(latlngs, { color: '#002d72', weight: 3 }).addTo(mapaLeaflet);
-        mapaLeaflet.fitBounds(latlngs, { padding: [30, 30] });
-    }, 50);
+    // Ruta real con LogRecord (se pide SOLO al abrir el mapa, no de antemano)
+    const inicioVentana = r.paradas[0].entrada;
+    const finVentana = r.retorno || (r.paradas[r.paradas.length - 1] && r.paradas[r.paradas.length - 1].salida) || new Date();
+
+    try {
+        const logs = await obtenerLogRecordConReintento(r.disp.id, inicioVentana.toISOString(), finVentana.toISOString());
+        if (logs.length > 1) {
+            const latlngs = logs.map(function (l) { return [l.latitude, l.longitude]; });
+            const linea = L.polyline(latlngs, { color: '#2c6cb0', weight: 3, opacity: 0.85 }).addTo(mapaLeaflet);
+            mapaLeaflet.fitBounds(linea.getBounds(), { padding: [30, 30] });
+        } else if (capasZonas.length > 0) {
+            const grupo = L.featureGroup(capasZonas);
+            mapaLeaflet.fitBounds(grupo.getBounds(), { padding: [30, 30] });
+        }
+    } catch (e) {
+        console.error('Error trazando ruta real', e);
+        if (capasZonas.length > 0) {
+            const grupo = L.featureGroup(capasZonas);
+            mapaLeaflet.fitBounds(grupo.getBounds(), { padding: [30, 30] });
+        }
+    }
 }
 
 function cerrarModalMapa() {
@@ -1227,7 +1303,6 @@ function cerrarModalMapa() {
     if (mapaLeaflet) { mapaLeaflet.remove(); mapaLeaflet = null; }
 }
 
-// ---------------- Exportar a Excel (ExcelJS: mismo formato que Horas de Conduccion) ----------------
 
 function exportarExcel(modo) {
     document.getElementById('combo-exportar-lista').classList.remove('open');
