@@ -459,6 +459,8 @@ tbody tr.fila-ronda { cursor: pointer; }
 .fila-placa:hover { background: #f0f4fa; }
 .fila-subviaje { cursor: pointer; }
 .fila-subviaje:hover { background: #f8fafc; }
+.fila-subviaje.seleccionada { background: #e6eefa; box-shadow: inset 3px 0 0 #002d72; }
+.fila-subviaje.seleccionada:hover { background: #e0e9f7; }
 
 .fila-subencabezado td {
     background: #eef2f9;
