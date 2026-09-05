@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=4">
+    <link rel="stylesheet" href="leadtime.css?v=5">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -223,6 +223,7 @@ let mapaConductoresGlobal = {};   // driverId -> nombre completo
 let promesaConductores = null;
 let promesaZonas = null;
 let rondasData = [];              // rondas ya procesadas y listas para mostrar
+let yaConsultado = false;         // true solo despues de una consulta real (evita mostrar "sin resultados"/diagnostico al solo escribir en los filtros)
 let mapaLeaflet = null;
 let claveOrden = 'salida';
 let ordenAsc = false;
@@ -509,6 +510,7 @@ geotab.addin.LeadTimeARDEPE = function (api, state) {
 // ---------------- Consulta principal ----------------
 
 async function consultar() {
+    yaConsultado = true;
     const fechaInicio = document.getElementById('fecha-inicio').value;
     const horaInicio = document.getElementById('hora-inicio').value;
     const fechaFin = document.getElementById('fecha-fin').value;
@@ -885,6 +887,10 @@ function filtrarDatos(lista) {
 function filtrosCambiaron() { renderizarComportamiento(); actualizarKPIs(); renderizarPanelLateral(); }
 
 function mostrarEstadoVacio(tbodyId, colspan, mensaje, diagnostico) {
+    if (!yaConsultado) {
+        document.getElementById(tbodyId).innerHTML = '<tr><td colspan="' + colspan + '" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>';
+        return;
+    }
     let html = '<tr><td colspan="' + colspan + '" class="estado-tabla">' + esc(mensaje);
     if (diagnostico) {
         html += '<div class="diag-caja">' +
