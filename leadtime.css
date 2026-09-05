@@ -455,6 +455,21 @@ tbody tr.fila-ronda { cursor: pointer; }
 .fila-resumen { cursor: pointer; }
 .fila-resumen:hover { background: #f0f4fa; }
 
+.fila-placa { cursor: pointer; }
+.fila-placa:hover { background: #f0f4fa; }
+.fila-subviaje { cursor: pointer; }
+.fila-subviaje:hover { background: #f8fafc; }
+
+.fila-subencabezado td {
+    background: #eef2f9;
+    color: #556070;
+    font-size: 10.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    letter-spacing: .5px;
+}
+
 /* ---------- Panel lateral deslizable: detalle de un viaje ---------- */
 .side-panel-overlay {
     position: fixed;
