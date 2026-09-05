@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=9">
+    <link rel="stylesheet" href="leadtime.css?v=10">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -624,6 +624,9 @@ async function consultar() {
         actualizarProgreso(dispositivos.length, dispositivos.length, 'Calculando duraciones y rankings...');
         calcularDuraciones(todasLasRondas);
 
+        actualizarProgreso(dispositivos.length, dispositivos.length, 'Recalculando conducci\u00f3n/detenido con la ventana real de cada viaje...');
+        await recalcularConduccionRuta(todasLasRondas);
+
         rondasData = todasLasRondas;
         renderizarComportamiento();
         actualizarKPIs();
@@ -1158,7 +1161,7 @@ function crearFilaSubViaje(v, numeroViaje, flatIdx) {
         : '<span style="color:#9aa4b2;">&#8212;</span>';
     const estado = calcularEstado(v);
 
-    return '<tr class="fila-subviaje" onclick="event.stopPropagation(); abrirPanelViaje(' + flatIdx + ')">' +
+    return '<tr class="fila-subviaje" id="fila-viaje-' + flatIdx + '" onclick="event.stopPropagation(); abrirPanelViaje(' + flatIdx + ')">' +
         '<td style="padding-left:34px;" class="celda-placa">' + esc(v.disp.name) + ' <span class="badge-viaje-numero">Viaje ' + numeroViaje + '</span></td>' +
         '<td>' + esc(nombre) + '</td>' +
         '<td>' + esc(puntoPartida) + '</td>' +
@@ -1198,7 +1201,41 @@ function calcularConduccionDetenido(logs, inicio, fin) {
     return { conduccionHoras: conduccionHoras, detenidoHoras: Math.max(0, totalHoras - conduccionHoras) };
 }
 
-async function abrirPanelViaje(idx) {
+// Recalculo FINAL (autoridad) de conduccion/detenido-en-ruta para cada viaje: pide
+// LogRecord con la VENTANA REAL Y COMPLETA del viaje (desde su salida hasta su retorno),
+// no solo el dia consultado -- esto evita que un viaje de varios dias quede con datos
+// incompletos por el margen limitado de la consulta principal. Ademas cachea el mismo
+// LogRecord en r._logsViaje para que el panel y el mapa no tengan que volver a pedirlo.
+async function recalcularConduccionRuta(rondas) {
+    for (let i = 0; i < rondas.length; i++) {
+        const r = rondas[i];
+        if (r.paradas.length < 2) continue;
+
+        const inicioVentana = r.paradas[0].entrada;
+        const finVentana = r.retorno || (r.paradas[r.paradas.length - 1] && r.paradas[r.paradas.length - 1].salida) || new Date();
+        const desde = new Date(inicioVentana.getTime() - MARGEN_LOGRECORD_HORAS * 3600000);
+        const hasta = new Date(finVentana.getTime() + MARGEN_LOGRECORD_HORAS * 3600000);
+
+        try {
+            const logs = await obtenerLogRecordConReintento(r.disp.id, desde.toISOString(), hasta.toISOString());
+            r._logsViaje = logs;
+            for (let j = 1; j < r.paradas.length; j++) {
+                const a = r.paradas[j - 1], b = r.paradas[j];
+                if (a.salida && b.entrada) {
+                    const d = calcularConduccionDetenido(logs, a.salida, b.entrada);
+                    b.conduccionHastaAqui = d.conduccionHoras;
+                    b.detenidoRutaHastaAqui = d.detenidoHoras;
+                }
+            }
+            calcularTotalesRuta(r);
+        } catch (e) {
+            console.error('Error recalculando conduccion/detenido para', r.disp.name, e);
+        }
+        if (i < rondas.length - 1) await sleep(80);
+    }
+}
+
+function abrirPanelViaje(idx) {
     const r = rondasFiltradasActuales[idx];
     if (!r) return;
     panelViajeIdxActual = idx;
@@ -1208,18 +1245,22 @@ async function abrirPanelViaje(idx) {
     const nombre = mapaConductoresGlobal[r.driverId] || (r.driverId || 'SIN CONDUCTOR');
     const estado = calcularEstado(r);
 
-    function pintarMeta(conduccionTxt, detenidoRutaTxt) {
-        document.getElementById('sp-meta').innerHTML =
-            '<div class="sp-meta-fila"><span>Conductor</span><b>' + esc(nombre) + '</b></div>' +
-            '<div class="sp-meta-fila"><span>Flota</span><b>' + esc(r.flota) + '</b></div>' +
-            '<div class="sp-meta-fila"><span>Duraci\u00f3n total</span><b>' + (r.cerrada ? formatHoras(r.duracionHoras) : '\u2014') + '</b></div>' +
-            '<div class="sp-meta-fila"><span>Conducci\u00f3n total</span><b>' + conduccionTxt + '</b></div>' +
-            '<div class="sp-meta-fila"><span>Detenido en ruta</span><b>' + detenidoRutaTxt + '</b></div>' +
-            '<div class="sp-meta-fila"><span>Estado</span><span class="badge ' + estado.clase + '">' + esc(estado.texto) + '</span></div>';
-    }
+    document.getElementById('sp-meta').innerHTML =
+        '<div class="sp-meta-fila"><span>Conductor</span><b>' + esc(nombre) + '</b></div>' +
+        '<div class="sp-meta-fila"><span>Flota</span><b>' + esc(r.flota) + '</b></div>' +
+        '<div class="sp-meta-fila"><span>Duraci\u00f3n total</span><b>' + (r.cerrada ? formatHoras(r.duracionHoras) : '\u2014') + '</b></div>' +
+        '<div class="sp-meta-fila"><span>Conducci\u00f3n total</span><b>' + formatHoras(r.totalConduccionRuta || 0) + '</b></div>' +
+        '<div class="sp-meta-fila"><span>Detenido en ruta</span><b>' + formatHoras(r.totalDetenidoRuta || 0) + '</b></div>' +
+        '<div class="sp-meta-fila"><span>Estado</span><span class="badge ' + estado.clase + '">' + esc(estado.texto) + '</span></div>';
 
-    pintarMeta('Calculando...', 'Calculando...');
-    document.getElementById('sp-timeline').innerHTML = construirTimelineVertical(r, null);
+    // Desglose por tramo: ya viene precalculado en cada parada (conduccionHastaAqui /
+    // detenidoRutaHastaAqui), gracias al recalculo final con la ventana real del viaje.
+    const desglosePorTramo = [];
+    for (let i = 1; i < r.paradas.length; i++) {
+        const p = r.paradas[i];
+        desglosePorTramo.push((p.conduccionHastaAqui != null) ? { conduccionHoras: p.conduccionHastaAqui, detenidoHoras: p.detenidoRutaHastaAqui } : null);
+    }
+    document.getElementById('sp-timeline').innerHTML = construirTimelineVertical(r, desglosePorTramo);
 
     const hayCoords = r.paradas.some(function (p) { return p.lat != null; });
     document.getElementById('sp-btn-mapa').style.display = hayCoords ? 'block' : 'none';
@@ -1227,37 +1268,17 @@ async function abrirPanelViaje(idx) {
     document.getElementById('side-panel-viaje').classList.add('open');
     document.getElementById('side-panel-overlay').classList.add('open');
 
-    // Calcular conduccion/detenido en ruta real (LogRecord), tramo por tramo -- se hace
-    // en segundo plano y se actualiza el panel cuando termina, sin bloquear la apertura.
-    try {
-        const inicioVentana = r.paradas[0].entrada;
-        const finVentana = r.retorno || (r.paradas[r.paradas.length - 1] && r.paradas[r.paradas.length - 1].salida) || new Date();
-        const desde = new Date(inicioVentana.getTime() - MARGEN_LOGRECORD_HORAS * 3600000);
-        const hasta = new Date(finVentana.getTime() + MARGEN_LOGRECORD_HORAS * 3600000);
-        const logs = await obtenerLogRecordConReintento(r.disp.id, desde.toISOString(), hasta.toISOString());
-        r._logsViaje = logs; // se reutiliza tambien para el mapa (evita pedirlo 2 veces)
-
-        const desglosePorTramo = [];
-        for (let i = 0; i < r.paradas.length - 1; i++) {
-            const a = r.paradas[i], b = r.paradas[i + 1];
-            desglosePorTramo.push((a.salida && b.entrada) ? calcularConduccionDetenido(logs, a.salida, b.entrada) : null);
-        }
-        const totalConduccion = desglosePorTramo.reduce(function (s, d) { return s + (d ? d.conduccionHoras : 0); }, 0);
-        const totalDetenidoRuta = desglosePorTramo.reduce(function (s, d) { return s + (d ? d.detenidoHoras : 0); }, 0);
-
-        if (panelViajeIdxActual === idx) { // el usuario no cambio de viaje mientras calculaba
-            pintarMeta(formatHoras(totalConduccion), formatHoras(totalDetenidoRuta));
-            document.getElementById('sp-timeline').innerHTML = construirTimelineVertical(r, desglosePorTramo);
-        }
-    } catch (e) {
-        console.error('Error calculando conduccion/detenido del viaje', e);
-        if (panelViajeIdxActual === idx) pintarMeta('No disponible', 'No disponible');
-    }
+    // Resalta la fila seleccionada en la tabla, para no perder la referencia
+    Array.prototype.forEach.call(document.querySelectorAll('.fila-subviaje.seleccionada'), function (el) { el.classList.remove('seleccionada'); });
+    const filaEl = document.getElementById('fila-viaje-' + idx);
+    if (filaEl) filaEl.classList.add('seleccionada');
 }
 
 function cerrarPanelViaje() {
     document.getElementById('side-panel-viaje').classList.remove('open');
     document.getElementById('side-panel-overlay').classList.remove('open');
+    Array.prototype.forEach.call(document.querySelectorAll('.fila-subviaje.seleccionada'), function (el) { el.classList.remove('seleccionada'); });
+    panelViajeIdxActual = -1;
 }
 
 function etiquetaParada(i, total, esFinReal) {
@@ -1554,19 +1575,26 @@ async function abrirModalMapa(rIndex) {
 
     // Zonas realmente visitadas en este viaje: se dibuja el POLIGONO real (con su
     // nombre como etiqueta permanente), no un punto.
+    // Zonas realmente visitadas en este viaje: se dibuja el POLIGONO real (con su
+    // numero de secuencia + nombre como etiqueta permanente), no un punto.
     const zonasEnViaje = [];
-    r.paradas.forEach(function (p) {
+    const numerosPorZona = {}; // z.id -> [indices de parada donde aparece], para la etiqueta
+    r.paradas.forEach(function (p, i) {
         const zonaCompleta = zonasCD.find(function (z) { return z.name === p.zona; });
-        if (zonaCompleta && zonaCompleta.points && zonaCompleta.points.length >= 3 && zonasEnViaje.indexOf(zonaCompleta) === -1) {
-            zonasEnViaje.push(zonaCompleta);
+        if (zonaCompleta) {
+            if (zonasEnViaje.indexOf(zonaCompleta) === -1 && zonaCompleta.points && zonaCompleta.points.length >= 3) zonasEnViaje.push(zonaCompleta);
+            if (!numerosPorZona[zonaCompleta.id]) numerosPorZona[zonaCompleta.id] = [];
+            numerosPorZona[zonaCompleta.id].push(i + 1);
         }
     });
     const capasZonas = [];
     zonasEnViaje.forEach(function (z) {
         const color = esPlanta(z.name) ? '#002d72' : '#16a34a';
+        const numeros = (numerosPorZona[z.id] || []).join(', ');
+        const etiqueta = numeros + '. ' + esc(z.name);
         const capa = L.polygon(z.points.map(function (p) { return [p.y, p.x]; }), { color: color, fillColor: color, weight: 2, fillOpacity: 0.28 })
-            .addTo(mapaLeaflet).bindPopup(esc(z.name));
-        capa.bindTooltip(esc(z.name), { permanent: true, direction: 'center', className: 'mapa-etiqueta-zona' });
+            .addTo(mapaLeaflet).bindPopup(etiqueta);
+        capa.bindTooltip(etiqueta, { permanent: true, direction: 'center', className: 'mapa-etiqueta-zona' });
         capasZonas.push(capa);
     });
 
