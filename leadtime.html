@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=5">
+    <link rel="stylesheet" href="leadtime.css?v=6">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -672,6 +672,8 @@ function fusionarEventosRuido(eventosOrdenados) {
 let diagUltimaConsulta = { dispositivosConsultados: 0, dispositivosConEventos: 0, totalEventos: 0, eventosSinZona: 0, eventosSinGPS: 0 };
 let diagEventosCrudos = [];
 
+const MARGEN_LOGRECORD_HORAS = 8; // margen extra al pedir LogRecord, para no fallar cuando el vehiculo estuvo "dormido" (sin GPS reciente) justo en el borde del rango consultado
+
 async function procesarDispositivo(disp, fromDate, toDate) {
     diagUltimaConsulta.dispositivosConsultados++;
     const eventos = await obtenerEventosConReintento(disp, fromDate, toDate);
@@ -679,7 +681,9 @@ async function procesarDispositivo(disp, fromDate, toDate) {
     diagUltimaConsulta.dispositivosConEventos++;
     diagUltimaConsulta.totalEventos += eventos.length;
 
-    const logs = await obtenerLogRecordConReintento(disp.id, fromDate, toDate);
+    const logsDesde = new Date(new Date(fromDate).getTime() - MARGEN_LOGRECORD_HORAS * 3600000);
+    const logsHasta = new Date(new Date(toDate).getTime() + MARGEN_LOGRECORD_HORAS * 3600000);
+    const logs = await obtenerLogRecordConReintento(disp.id, logsDesde.toISOString(), logsHasta.toISOString());
 
     const grupoIds = disp.grupos || [];
     const flota = grupoIds.includes(GRUPOS.LOCAL) ? 'LOCAL' : (grupoIds.includes(GRUPOS.PROVINCIA) ? 'PROVINCIA' : 'OTRO');
@@ -1233,7 +1237,7 @@ async function buscarSalidaPlantaAnterior(disp, antesDeFecha) {
     const eventos = await obtenerEventosConReintento(disp, desde.toISOString(), antesDeFecha.toISOString());
     if (eventos.length === 0) return null;
 
-    const logs = await obtenerLogRecordConReintento(disp.id, desde.toISOString(), antesDeFecha.toISOString());
+    const logs = await obtenerLogRecordConReintento(disp.id, new Date(desde.getTime() - MARGEN_LOGRECORD_HORAS * 3600000).toISOString(), new Date(antesDeFecha.getTime() + MARGEN_LOGRECORD_HORAS * 3600000).toISOString());
 
     const candidatos = eventos.map(function (ev) {
         const inicio = new Date(ev.activeFrom);
@@ -1288,7 +1292,7 @@ async function buscarCierreHaciaAdelante(ronda, limiteFinal) {
         const eventosVentana = await obtenerEventosConReintento(ronda.disp, cursorTiempo.toISOString(), limiteFinal.toISOString());
         if (eventosVentana.length === 0) break;
 
-        const logs = await obtenerLogRecordConReintento(ronda.disp.id, cursorTiempo.toISOString(), limiteFinal.toISOString());
+        const logs = await obtenerLogRecordConReintento(ronda.disp.id, new Date(cursorTiempo.getTime() - MARGEN_LOGRECORD_HORAS * 3600000).toISOString(), new Date(limiteFinal.getTime() + MARGEN_LOGRECORD_HORAS * 3600000).toISOString());
 
         const resueltos = eventosVentana.map(function (ev) {
             const inicio = new Date(ev.activeFrom);
