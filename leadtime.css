@@ -472,8 +472,12 @@ tbody tr.fila-ronda { cursor: pointer; }
 
 /* ---------- Panel lateral deslizable: detalle de un viaje ---------- */
 .side-panel-overlay {
-    position: fixed;
-    inset: 0;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    min-height: 100vh;
     background: rgba(10, 16, 32, 0.4);
     z-index: 400;
     opacity: 0;
@@ -483,12 +487,12 @@ tbody tr.fila-ronda { cursor: pointer; }
 .side-panel-overlay.open { opacity: 1; pointer-events: auto; }
 
 .side-panel {
-    position: fixed;
+    position: absolute;
     top: 0;
-    bottom: 0;
     right: -460px;
     width: 430px;
     max-width: 92vw;
+    height: 100vh;
     background: #ffffff;
     box-shadow: -8px 0 30px rgba(0,0,0,.25);
     z-index: 410;
@@ -597,6 +601,61 @@ tbody tr.fila-ronda { cursor: pointer; }
 .tl-horas b { color: #0f172a; }
 .tl-dur { font-size: 11px; color: #16a34a; font-weight: 700; margin-top: 4px; }
 
+.tl-etiqueta {
+    font-size: 9.5px;
+    font-weight: 800;
+    color: #8892a0;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    margin-bottom: 3px;
+}
+
+.tl-tramo {
+    font-size: 11px;
+    color: #33475b;
+    background: #eef2f9;
+    border-radius: 6px;
+    padding: 6px 9px;
+    margin: 6px 0;
+    line-height: 1.5;
+}
+.tl-tramo b { color: #002d72; }
+.tl-tramo-cargando { color: #9aa4b2; font-style: italic; }
+
+/* ---------- Mini-resumen por conductor (2+ conductores en una placa) ---------- */
+.fila-resumen-conductores td {
+    background: #fffbea;
+    padding: 10px 16px;
+    border-bottom: 1px solid #f1e8c8;
+}
+.resumen-cond-titulo {
+    font-size: 10px;
+    font-weight: 800;
+    color: #8a6d00;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+.resumen-cond-fila {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #556070;
+    padding: 3px 0;
+}
+.resumen-cond-fila b { color: #0f172a; }
+
+/* ---------- Etiqueta de zona en el mapa (Leaflet tooltip permanente) ---------- */
+.mapa-etiqueta-zona {
+    background: rgba(255,255,255,.92);
+    border: none;
+    box-shadow: 0 1px 4px rgba(0,0,0,.3);
+    font-size: 10.5px;
+    font-weight: 800;
+    color: #002d72;
+    padding: 2px 6px;
+}
+
 .panel-titulo {
     font-size: 11px;
     font-weight: 800;
@@ -641,10 +700,14 @@ tbody tr.fila-ronda { cursor: pointer; }
 
 /* ---------- Modales genericos ---------- */
 .modal-overlay-generico {
-    position: fixed;
-    inset: 0;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    min-height: 100vh;
     background: rgba(10, 16, 32, 0.55);
-    z-index: 300;
+    z-index: 500;
     display: flex;
     align-items: center;
     justify-content: center;
