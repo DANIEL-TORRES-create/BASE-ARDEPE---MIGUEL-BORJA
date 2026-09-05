@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=3">
+    <link rel="stylesheet" href="leadtime.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -111,40 +111,49 @@
         </div>
     </div><!-- /sticky-header -->
 
-    <h3 class="titulo-seccion">Comportamiento de Viajes</h3>
+    <!-- Pestanas -->
+    <div class="tabs-bar">
+        <button class="tab-btn active" id="tab-btn-comportamiento" onclick="cambiarPestana('comportamiento')">Comportamiento de Viajes</button>
+        <button class="tab-btn" id="tab-btn-tendencias" onclick="cambiarPestana('tendencias')">Tiempo en Zonas y Tendencias</button>
+    </div>
 
-    <!-- Panel lateral de rankings -->
-    <div class="panel-lateral" id="panel-lateral" style="display:none;">
-        <div class="panel-seccion">
-            <div class="panel-titulo">CDs con m&aacute;s tiempo de espera</div>
-            <div id="ranking-cds"></div>
-        </div>
-        <div class="panel-seccion">
-            <div class="panel-titulo">Viajes m&aacute;s largos</div>
-            <div id="ranking-rondas"></div>
+    <!-- PESTANA 1: Comportamiento de Viajes -->
+    <div id="vista-comportamiento" class="vista-tab">
+        <!-- Nivel 1: Placa (agrupa todos sus viajes). Clic despliega Nivel 2: cada viaje
+             individual. Clic en un viaje abre el panel lateral con el detalle de la ruta. -->
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Placa</th>
+                        <th>Conductor</th>
+                        <th>Punto de Partida</th>
+                        <th>Fecha de Salida</th>
+                        <th>Punto de Llegada</th>
+                        <th>Fecha de Llegada</th>
+                        <th>Duraci&oacute;n</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-resumen">
+                    <tr><td colspan="8" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
 
-    <!-- Nivel 1: Placa (agrupa todos sus viajes). Clic despliega Nivel 2: cada viaje
-         individual. Clic en un viaje abre el panel lateral con el detalle de la ruta. -->
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Placa</th>
-                    <th>Conductor</th>
-                    <th>Punto de Partida</th>
-                    <th>Fecha de Salida</th>
-                    <th>Punto de Llegada</th>
-                    <th>Fecha de Llegada</th>
-                    <th>Duraci&oacute;n</th>
-                    <th>Estado</th>
-                </tr>
-            </thead>
-            <tbody id="tbody-resumen">
-                <tr><td colspan="8" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
-            </tbody>
-        </table>
+    <!-- PESTANA 2: Tiempo en Zonas y Tendencias -->
+    <div id="vista-tendencias" class="vista-tab" style="display:none;">
+        <div class="panel-lateral" id="panel-lateral">
+            <div class="panel-seccion">
+                <div class="panel-titulo">CDs con m&aacute;s tiempo de espera</div>
+                <div id="ranking-cds"></div>
+            </div>
+            <div class="panel-seccion">
+                <div class="panel-titulo">Viajes m&aacute;s largos</div>
+                <div id="ranking-rondas"></div>
+            </div>
+        </div>
     </div>
 
     <!-- Barra de progreso -->
@@ -551,6 +560,9 @@ async function consultar() {
         actualizarProgreso(dispositivos.length, dispositivos.length, 'Buscando inicio real de viajes incompletos (hasta 72h atr\u00e1s)...');
         await completarViajesIncompletos(todasLasRondas);
 
+        actualizarProgreso(dispositivos.length, dispositivos.length, 'Buscando retorno real de viajes sin cierre (hasta 72h adelante)...');
+        await completarViajesSinRetorno(todasLasRondas, toDate);
+
         actualizarProgreso(dispositivos.length, dispositivos.length, 'Verificando estado en vivo de rondas abiertas...');
         await resolverEstadosEnVivo(todasLasRondas, toDate);
 
@@ -694,9 +706,13 @@ async function procesarDispositivo(disp, fromDate, toDate) {
 
     if (eventosResueltos.length === 0) return [];
 
+    console.log('[LeadTime]', disp.name, '- ANTES de fusion (' + eventosResueltos.length + '):',
+        eventosResueltos.map(function (e) { return e.zonaNombre + ' [' + e.inicio.toLocaleString('es-PE') + ' -> ' + e.fin.toLocaleString('es-PE') + ']'; }));
+
     eventosResueltos = fusionarEventosRuido(eventosResueltos);
 
-    console.log('[LeadTime]', disp.name, '- eventos:', eventos.length, '- paradas finales (post-fusion):', eventosResueltos.length);
+    console.log('[LeadTime]', disp.name, '- DESPUES de fusion (' + eventosResueltos.length + '):',
+        eventosResueltos.map(function (e) { return e.zonaNombre + ' [' + e.inicio.toLocaleString('es-PE') + ' -> ' + e.fin.toLocaleString('es-PE') + ']'; }));
 
     return construirRondas(eventosResueltos, disp, flota);
 }
@@ -843,6 +859,13 @@ function calcularEstado(r) {
 
 // ---------------- Filtros ----------------
 
+function cambiarPestana(nombre) {
+    document.getElementById('tab-btn-comportamiento').classList.toggle('active', nombre === 'comportamiento');
+    document.getElementById('tab-btn-tendencias').classList.toggle('active', nombre === 'tendencias');
+    document.getElementById('vista-comportamiento').style.display = nombre === 'comportamiento' ? 'block' : 'none';
+    document.getElementById('vista-tendencias').style.display = nombre === 'tendencias' ? 'block' : 'none';
+}
+
 function filtrarDatos(lista) {
     const fFlota = document.getElementById('filtro-flota').value;
     const fConductor = (document.getElementById('filtro-conductor').value || '').toUpperCase().trim();
@@ -984,10 +1007,11 @@ function renderizarComportamiento() {
     grupos.forEach(function (g) {
         html += crearFilaPlaca(g);
         if (g.abierto) {
-            g.viajes.forEach(function (v) {
+            html += '<tr class="fila-subencabezado"><td colspan="8">Viajes de ' + esc(g.disp.name) + '</td></tr>';
+            g.viajes.forEach(function (v, vIdx) {
                 const flatIdx = rondasFiltradasActuales.length;
                 rondasFiltradasActuales.push(v);
-                html += crearFilaSubViaje(v, flatIdx);
+                html += crearFilaSubViaje(v, vIdx + 1, flatIdx);
             });
         }
     });
@@ -1014,7 +1038,7 @@ function crearFilaPlaca(g) {
         '</tr>';
 }
 
-function crearFilaSubViaje(v, flatIdx) {
+function crearFilaSubViaje(v, numeroViaje, flatIdx) {
     const nombre = mapaConductoresGlobal[v.driverId] || (v.driverId || 'SIN CONDUCTOR');
     const primeraParada = v.paradas[0];
     const puntoPartida = primeraParada ? primeraParada.zona : (v.sinSalidaConocida ? 'Desconocido' : 'Planta Pucusana');
@@ -1029,7 +1053,7 @@ function crearFilaSubViaje(v, flatIdx) {
     const estado = calcularEstado(v);
 
     return '<tr class="fila-subviaje" onclick="event.stopPropagation(); abrirPanelViaje(' + flatIdx + ')">' +
-        '<td style="padding-left:34px;" class="celda-placa">' + esc(v.disp.name) + '</td>' +
+        '<td style="padding-left:34px;" class="celda-placa">' + esc(v.disp.name) + ' <span class="badge-viaje-numero">Viaje ' + numeroViaje + '</span></td>' +
         '<td>' + esc(nombre) + '</td>' +
         '<td>' + esc(puntoPartida) + '</td>' +
         '<td style="font-size:11.5px;">' + fechaSalidaTxt + '</td>' +
@@ -1131,8 +1155,11 @@ function actualizarKPIs() {
 
 function renderizarPanelLateral() {
     const lista = filtrarDatos(rondasData);
-    document.getElementById('panel-lateral').style.display = lista.length ? 'flex' : 'none';
-    if (lista.length === 0) return;
+    if (lista.length === 0) {
+        document.getElementById('ranking-cds').innerHTML = '<div class="ranking-vacio">Sin datos.</div>';
+        document.getElementById('ranking-rondas').innerHTML = '<div class="ranking-vacio">Sin datos.</div>';
+        return;
+    }
 
     const mapaCD = {};
     lista.forEach(function (r) {
@@ -1235,6 +1262,72 @@ async function completarViajesIncompletos(rondas) {
             console.error('Error buscando salida anterior para', r.disp.name, e);
         }
         if (i < incompletas.length - 1) await sleep(150);
+    }
+}
+
+// ---------------- Busqueda hacia adelante (72h) para viajes sin retorno ----------------
+// Solo aplica cuando el filtro NO llega al momento actual (si llega al presente, se usa el
+// estado en vivo como ya funciona). Busca hacia adelante, encadenando cuantas CDs haga
+// falta, hasta encontrar el retorno real a Planta Pucusana o agotar la ventana/72h.
+
+const BUSQUEDA_ADELANTE_HORAS = 72;
+const MAX_ENCADENAMIENTOS = 15; // limite de seguridad para no iterar sin fin
+
+async function buscarCierreHaciaAdelante(ronda, limiteFinal) {
+    let cursorTiempo = ronda.paradas[ronda.paradas.length - 1].salida || ronda.paradas[ronda.paradas.length - 1].entrada;
+    let iteraciones = 0;
+
+    while (cursorTiempo < limiteFinal && iteraciones < MAX_ENCADENAMIENTOS) {
+        iteraciones++;
+        const eventosVentana = await obtenerEventosConReintento(ronda.disp, cursorTiempo.toISOString(), limiteFinal.toISOString());
+        if (eventosVentana.length === 0) break;
+
+        const logs = await obtenerLogRecordConReintento(ronda.disp.id, cursorTiempo.toISOString(), limiteFinal.toISOString());
+
+        const resueltos = eventosVentana.map(function (ev) {
+            const inicio = new Date(ev.activeFrom);
+            const horas = duracionAHoras(ev.duration);
+            const fin = new Date(inicio.getTime() + horas * 3600000);
+            const punto = logMasCercano(logs, inicio.getTime());
+            const lat = punto ? punto.latitude : null;
+            const lon = punto ? punto.longitude : null;
+            const zona = resolverZonaPorCoord(lat, lon);
+            return { inicio: inicio, fin: fin, lat: lat, lon: lon, zonaNombre: zona ? zona.name : null, driverId: ev.driver ? ev.driver.id : null };
+        }).filter(function (e) { return e.zonaNombre && e.inicio > cursorTiempo; })
+          .sort(function (a, b) { return a.inicio - b.inicio; });
+
+        if (resueltos.length === 0) break;
+
+        const siguiente = resueltos[0];
+        const nuevaParada = { zona: siguiente.zonaNombre, entrada: siguiente.inicio, salida: siguiente.fin, lat: siguiente.lat, lon: siguiente.lon, driverId: siguiente.driverId || ronda.driverId };
+        ronda.paradas.push(nuevaParada);
+
+        if (esPlanta(siguiente.zonaNombre)) {
+            ronda.retorno = nuevaParada.entrada;
+            ronda.cerrada = true;
+            break;
+        }
+        cursorTiempo = nuevaParada.salida;
+    }
+
+    ronda.cds = ronda.paradas.filter(function (p) { return !esPlanta(p.zona); });
+}
+
+async function completarViajesSinRetorno(rondas, toDate) {
+    const ahora = new Date();
+    const finDelFiltro = new Date(toDate);
+    if (finDelFiltro >= ahora) return; // filtro del momento/futuro: se usa estado en vivo, no busqueda hacia adelante
+
+    const limiteFinal = new Date(Math.min(finDelFiltro.getTime() + BUSQUEDA_ADELANTE_HORAS * 3600000, ahora.getTime()));
+    const abiertas = rondas.filter(function (r) { return !r.cerrada; });
+
+    for (let i = 0; i < abiertas.length; i++) {
+        try {
+            await buscarCierreHaciaAdelante(abiertas[i], limiteFinal);
+        } catch (e) {
+            console.error('Error buscando cierre hacia adelante para', abiertas[i].disp.name, e);
+        }
+        if (i < abiertas.length - 1) await sleep(150);
     }
 }
 
