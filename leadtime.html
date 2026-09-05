@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=7">
+    <link rel="stylesheet" href="leadtime.css?v=8">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -299,13 +299,39 @@ function puntoEnPoligono(lat, lon, points) {
     return dentro;
 }
 
-const RADIO_ZONA_METROS = 400; // fallback: si el punto no cae dentro del poligono exacto, se acepta la zona mas cercana por distancia si esta a menos de esto
+const RADIO_ZONA_METROS = 200; // fallback: si el punto no cae dentro del poligono exacto, se acepta la zona mas cercana por distancia AL BORDE (no al centro) si esta a menos de esto
 
-function calcularCentroide(points) {
-    if (!points || points.length === 0) return null;
-    let sumaLat = 0, sumaLon = 0;
-    points.forEach(function (p) { sumaLat += p.y; sumaLon += p.x; });
-    return { lat: sumaLat / points.length, lon: sumaLon / points.length };
+// Distancia de un punto a un segmento de recta, en un plano local (metros), usando
+// proyeccion punto-a-segmento estandar.
+function distanciaPuntoASegmento(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    const largoSq = dx * dx + dy * dy;
+    if (largoSq === 0) return Math.hypot(px - ax, py - ay);
+    let t = ((px - ax) * dx + (py - ay) * dy) / largoSq;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+// Distancia real (metros) de un punto GPS al BORDE mas cercano de un poligono -- no al
+// centro. Esto evita que zonas grandes (como Planta) fallen solo por ser extensas, y
+// evita que zonas cercanas entre si se confundan por el tamano de otra.
+function distanciaAPoligonoMetros(lat, lon, points) {
+    if (!points || points.length < 2) return Infinity;
+    const mPorGradoLat = 111320;
+    const mPorGradoLon = 111320 * Math.cos(lat * Math.PI / 180);
+
+    function proyectar(plat, plon) {
+        return { x: (plon - lon) * mPorGradoLon, y: (plat - lat) * mPorGradoLat };
+    }
+
+    let minDist = Infinity;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const a = proyectar(points[j].y, points[j].x);
+        const b = proyectar(points[i].y, points[i].x);
+        const d = distanciaPuntoASegmento(0, 0, a.x, a.y, b.x, b.y);
+        if (d < minDist) minDist = d;
+    }
+    return minDist;
 }
 
 function resolverZonaPorCoord(lat, lon) {
@@ -316,20 +342,18 @@ function resolverZonaPorCoord(lat, lon) {
         if (puntoEnPoligono(lat, lon, zonasCD[i].points)) return zonasCD[i];
     }
 
-    // 2) Fallback: zona mas cercana por distancia a su centroide (para geocercas mal
-    // dibujadas, muy pequenas, o puntos GPS con margen de error normal).
+    // 2) Fallback: zona cuyo BORDE quede mas cerca (no su centro) -- para puntos justo
+    // fuera del limite exacto por margen de error de GPS o geocercas imprecisas.
     let mejor = null, mejorDist = Infinity;
     zonasCD.forEach(function (z) {
-        const centro = calcularCentroide(z.points);
-        if (!centro) return;
-        const d = distanciaMetros(lat, lon, centro.lat, centro.lon);
+        const d = distanciaAPoligonoMetros(lat, lon, z.points);
         if (d < mejorDist) { mejorDist = d; mejor = z; }
     });
     if (mejor && mejorDist <= RADIO_ZONA_METROS) {
-        console.log('[LeadTime] Zona resuelta por FALLBACK de distancia:', mejor.name, '(' + Math.round(mejorDist) + 'm)');
+        console.log('[LeadTime] Zona resuelta por FALLBACK de borde:', mejor.name, '(' + Math.round(mejorDist) + 'm del borde)');
         return mejor;
     }
-    if (mejor) console.log('[LeadTime] Sin zona: la mas cercana fue', mejor.name, 'a', Math.round(mejorDist) + 'm (excede el radio de ' + RADIO_ZONA_METROS + 'm)');
+    if (mejor) console.log('[LeadTime] Sin zona: la mas cercana (por borde) fue', mejor.name, 'a', Math.round(mejorDist) + 'm (excede el radio de ' + RADIO_ZONA_METROS + 'm)');
 
     return null;
 }
