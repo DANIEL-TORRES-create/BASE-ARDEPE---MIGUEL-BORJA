@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=12">
+    <link rel="stylesheet" href="leadtime.css?v=13">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -131,14 +131,15 @@
                         <th>Fecha de Salida</th>
                         <th>Punto de Llegada</th>
                         <th>Fecha de Llegada</th>
+                        <th>CDs Visitados</th>
                         <th>Duraci&oacute;n de Ruta</th>
                         <th>Conducci&oacute;n</th>
-                        <th>Detenido en Ruta</th>
+                        <th>Detenido</th>
                         <th>Estado</th>
                     </tr>
                 </thead>
                 <tbody id="tbody-resumen">
-                    <tr><td colspan="10" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
+                    <tr><td colspan="11" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>
                 </tbody>
             </table>
         </div>
@@ -635,7 +636,7 @@ async function consultar() {
     } catch (e) {
         console.error(e);
         rondasData = [];
-        document.getElementById('tbody-resumen').innerHTML = '<tr><td colspan="10" class="estado-tabla" style="color:#c0392b;">Error al consultar la API: ' + esc(e && e.message ? e.message : String(e)) + '</td></tr>';
+        document.getElementById('tbody-resumen').innerHTML = '<tr><td colspan="11" class="estado-tabla" style="color:#c0392b;">Error al consultar la API: ' + esc(e && e.message ? e.message : String(e)) + '</td></tr>';
     } finally {
         btn.disabled = false;
         btn.innerText = '\uD83D\uDD0D Consultar';
@@ -817,7 +818,6 @@ function construirRondas(eventosResueltos, disp, flota, logs) {
     if (actual && actual.paradas.length > 0) rondas.push(actual);
 
     rondas.forEach(function (r) {
-        r.cds = r.paradas.filter(function (p) { return !esPlanta(p.zona); });
         calcularTotalesRuta(r);
     });
 
@@ -827,12 +827,27 @@ function construirRondas(eventosResueltos, disp, flota, logs) {
 // Suma el conduccion/detenido-en-ruta de todas las paradas de una ronda (recalcular
 // despues de una fusion de eventos, o de la busqueda hacia atras/adelante).
 function calcularTotalesRuta(r) {
+    // r.cds se recalcula aqui mismo (nunca depender de que quede actualizado afuera).
+    r.cds = r.paradas.filter(function (p) { return !esPlanta(p.zona); });
+    r.cdsVisitadas = r.cds.map(function (p) { return p.zona; });
+
     // OJO: la parada[0] (primera del viaje) es un objeto COMPARTIDO con el retorno del
     // viaje anterior (misma Planta) -- puede "heredar" un conduccionHastaAqui que en
     // realidad pertenece al viaje anterior, no a este. Por eso se excluye del total.
     const paradasDelViaje = r.paradas.slice(1);
     r.totalConduccionRuta = paradasDelViaje.reduce(function (s, p) { return s + (p.conduccionHastaAqui || 0); }, 0);
-    r.totalDetenidoRuta = paradasDelViaje.reduce(function (s, p) { return s + (p.detenidoRutaHastaAqui || 0); }, 0);
+
+    // "Detenido" = detenido EN RUTA (entre zonas) + detenido DENTRO de las CDs
+    // intermedias (para que Conduccion + Detenido = Duracion de Ruta, siempre).
+    // La primera parada (antes de la Salida) y la ultima (Retorno, sin salida propia)
+    // no aportan tiempo de estadia a esta cuenta -- solo las paradas intermedias.
+    const detenidoEnRuta = paradasDelViaje.reduce(function (s, p) { return s + (p.detenidoRutaHastaAqui || 0); }, 0);
+    let detenidoEnCDs = 0;
+    for (let i = 1; i < r.paradas.length - 1; i++) {
+        const p = r.paradas[i];
+        if (p.salida) detenidoEnCDs += (p.salida - p.entrada) / 3600000;
+    }
+    r.totalDetenidoRuta = detenidoEnRuta + detenidoEnCDs;
 }
 
 
@@ -1059,11 +1074,22 @@ function agruparPorPlaca(lista) {
         g.zonaLlegada = info.zona;
         g.fechaLlegada = info.fecha;
         g.guionLlegada = info.guion;
-        g.duracionHoras = (!info.guion && g.primeraSalida && info.fecha) ? (info.fecha - g.primeraSalida) / 3600000 : null;
 
-        // Totales de conduccion/detenido en ruta: suma de TODOS los viajes de la placa
+        // Duracion de Ruta de la Placa = suma simple de la duracion de cada viaje (mismo
+        // criterio que Conduccion/Detenido) -- NO "primera salida a ultima llegada", para
+        // no incluir el tiempo parqueado en Planta ENTRE viajes (eso no es parte de ningun viaje).
+        g.duracionHoras = g.viajes.reduce(function (s, v) { return s + (v.cerrada ? (v.duracionHoras || 0) : 0); }, 0);
+
+        // Totales de conduccion/detenido: suma de TODOS los viajes de la placa
         g.totalConduccionRuta = g.viajes.reduce(function (s, v) { return s + (v.totalConduccionRuta || 0); }, 0);
         g.totalDetenidoRuta = g.viajes.reduce(function (s, v) { return s + (v.totalDetenidoRuta || 0); }, 0);
+
+        // CDs visitadas: todas las unicas, de TODOS los viajes de esta placa
+        const cdsUnicas = [];
+        g.viajes.forEach(function (v) {
+            (v.cdsVisitadas || []).forEach(function (nombre) { if (cdsUnicas.indexOf(nombre) === -1) cdsUnicas.push(nombre); });
+        });
+        g.cdsVisitadasTexto = cdsUnicas.join(', ') || '\u2014';
 
         // Mini-resumen por conductor (solo si hay 2 o mas conductores distintos)
         g.resumenPorConductor = null;
@@ -1094,7 +1120,7 @@ function renderizarComportamiento() {
     const lista = filtrarDatos(rondasData);
 
     if (lista.length === 0) {
-        mostrarEstadoVacio('tbody-resumen', 10, 'No hay viajes para los filtros aplicados.', true);
+        mostrarEstadoVacio('tbody-resumen', 11, 'No hay viajes para los filtros aplicados.', true);
         gruposActuales = [];
         rondasFiltradasActuales = [];
         return;
@@ -1111,7 +1137,7 @@ function renderizarComportamiento() {
         html += crearFilaPlaca(g);
         if (g.abierto) {
             if (g.resumenPorConductor) html += crearFilaResumenConductores(g);
-            html += '<tr class="fila-subencabezado"><td colspan="10">Viajes de ' + esc(g.disp.name) + '</td></tr>';
+            html += '<tr class="fila-subencabezado"><td colspan="11">Viajes de ' + esc(g.disp.name) + '</td></tr>';
             g.viajes.forEach(function (v, vIdx) {
                 const flatIdx = rondasFiltradasActuales.length;
                 rondasFiltradasActuales.push(v);
@@ -1125,9 +1151,9 @@ function renderizarComportamiento() {
 
 function crearFilaResumenConductores(g) {
     const filas = g.resumenPorConductor.map(function (c) {
-        return '<div class="resumen-cond-fila"><b>' + esc(c.nombre) + '</b><span>Conducci\u00f3n: ' + formatHoras(c.conduccion) + ' &middot; Detenido en ruta: ' + formatHoras(c.detenido) + '</span></div>';
+        return '<div class="resumen-cond-fila"><b>' + esc(c.nombre) + '</b><span>Conducci\u00f3n: ' + formatHoras(c.conduccion) + ' &middot; Detenido: ' + formatHoras(c.detenido) + '</span></div>';
     }).join('');
-    return '<tr class="fila-resumen-conductores"><td colspan="10"><div class="resumen-cond-titulo">Resumen por conductor</div>' + filas + '</td></tr>';
+    return '<tr class="fila-resumen-conductores"><td colspan="11"><div class="resumen-cond-titulo">Resumen por conductor</div>' + filas + '</td></tr>';
 }
 
 function crearFilaPlaca(g) {
@@ -1144,6 +1170,7 @@ function crearFilaPlaca(g) {
         '<td style="font-size:11.5px;">' + primeraSalidaTxt + '</td>' +
         '<td>' + zonaLlegadaTxt + '</td>' +
         '<td style="font-size:11.5px;">' + fechaLlegadaTxt + '</td>' +
+        '<td style="font-size:12px; max-width:220px;">' + esc(g.cdsVisitadasTexto) + '</td>' +
         '<td style="font-weight:700;">' + duracionTxt + '</td>' +
         '<td>' + formatHoras(g.totalConduccionRuta) + '</td>' +
         '<td>' + formatHoras(g.totalDetenidoRuta) + '</td>' +
@@ -1164,6 +1191,7 @@ function crearFilaSubViaje(v, numeroViaje, flatIdx) {
         ? (formatHoras(info.duracionHoras) + (v.sinSalidaConocida ? ' <span style="color:#c0392b;" title="Salida real fuera del filtro: minimo, no el tiempo total real">*</span>' : ''))
         : '<span style="color:#9aa4b2;">&#8212;</span>';
     const estado = calcularEstado(v);
+    const cdsTxt = (v.cdsVisitadas && v.cdsVisitadas.length) ? v.cdsVisitadas.join(', ') : '\u2014';
 
     return '<tr class="fila-subviaje" id="fila-viaje-' + flatIdx + '" onclick="event.stopPropagation(); abrirPanelViaje(' + flatIdx + ')">' +
         '<td style="padding-left:34px;" class="celda-placa">' + esc(v.disp.name) + ' <span class="badge-viaje-numero">Viaje ' + numeroViaje + '</span></td>' +
@@ -1172,6 +1200,7 @@ function crearFilaSubViaje(v, numeroViaje, flatIdx) {
         '<td style="font-size:11.5px;">' + fechaSalidaTxt + '</td>' +
         '<td>' + puntoLlegadaTxt + '</td>' +
         '<td style="font-size:11.5px;">' + fechaLlegadaTxt + '</td>' +
+        '<td style="font-size:12px; max-width:220px;">' + esc(cdsTxt) + '</td>' +
         '<td style="font-weight:700;">' + duracionTxt + '</td>' +
         '<td>' + formatHoras(v.totalConduccionRuta || 0) + '</td>' +
         '<td>' + formatHoras(v.totalDetenidoRuta || 0) + '</td>' +
@@ -1254,7 +1283,7 @@ function abrirPanelViaje(idx) {
         '<div class="sp-meta-fila"><span>Flota</span><b>' + esc(r.flota) + '</b></div>' +
         '<div class="sp-meta-fila"><span>Duraci\u00f3n total</span><b>' + (r.cerrada ? formatHoras(r.duracionHoras) : '\u2014') + '</b></div>' +
         '<div class="sp-meta-fila"><span>Conducci\u00f3n total</span><b>' + formatHoras(r.totalConduccionRuta || 0) + '</b></div>' +
-        '<div class="sp-meta-fila"><span>Detenido en ruta</span><b>' + formatHoras(r.totalDetenidoRuta || 0) + '</b></div>' +
+        '<div class="sp-meta-fila"><span>Detenido</span><b>' + formatHoras(r.totalDetenidoRuta || 0) + '</b></div>' +
         '<div class="sp-meta-fila"><span>Estado</span><span class="badge ' + estado.clase + '">' + esc(estado.texto) + '</span></div>';
 
     // Desglose por tramo: ya viene precalculado en cada parada (conduccionHastaAqui /
@@ -1533,8 +1562,6 @@ async function buscarCierreHaciaAdelante(ronda, limiteFinal) {
         }
         cursorTiempo = nuevaParada.salida;
     }
-
-    ronda.cds = ronda.paradas.filter(function (p) { return !esPlanta(p.zona); });
 }
 
 async function completarViajesSinRetorno(rondas, toDate) {
