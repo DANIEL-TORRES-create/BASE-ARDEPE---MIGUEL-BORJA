@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=11">
+    <link rel="stylesheet" href="leadtime.css?v=12">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -827,8 +827,12 @@ function construirRondas(eventosResueltos, disp, flota, logs) {
 // Suma el conduccion/detenido-en-ruta de todas las paradas de una ronda (recalcular
 // despues de una fusion de eventos, o de la busqueda hacia atras/adelante).
 function calcularTotalesRuta(r) {
-    r.totalConduccionRuta = r.paradas.reduce(function (s, p) { return s + (p.conduccionHastaAqui || 0); }, 0);
-    r.totalDetenidoRuta = r.paradas.reduce(function (s, p) { return s + (p.detenidoRutaHastaAqui || 0); }, 0);
+    // OJO: la parada[0] (primera del viaje) es un objeto COMPARTIDO con el retorno del
+    // viaje anterior (misma Planta) -- puede "heredar" un conduccionHastaAqui que en
+    // realidad pertenece al viaje anterior, no a este. Por eso se excluye del total.
+    const paradasDelViaje = r.paradas.slice(1);
+    r.totalConduccionRuta = paradasDelViaje.reduce(function (s, p) { return s + (p.conduccionHastaAqui || 0); }, 0);
+    r.totalDetenidoRuta = paradasDelViaje.reduce(function (s, p) { return s + (p.detenidoRutaHastaAqui || 0); }, 0);
 }
 
 
@@ -1261,14 +1265,6 @@ function abrirPanelViaje(idx) {
         desglosePorTramo.push((p.conduccionHastaAqui != null) ? { conduccionHoras: p.conduccionHastaAqui, detenidoHoras: p.detenidoRutaHastaAqui } : null);
     }
     document.getElementById('sp-timeline').innerHTML = construirTimelineVertical(r, desglosePorTramo);
-
-    // DIAGNOSTICO TEMPORAL: confirma si el total del encabezado realmente coincide con la
-    // suma de los tramos mostrados, en el mismo instante (para descartar cache del navegador).
-    const sumaConduccionTramos = desglosePorTramo.reduce(function (s, d) { return s + (d ? d.conduccionHoras : 0); }, 0);
-    const sumaDetenidoTramos = desglosePorTramo.reduce(function (s, d) { return s + (d ? d.detenidoHoras : 0); }, 0);
-    console.log('[LeadTime] Panel de', r.disp.name, '- r.totalConduccionRuta:', formatHoras(r.totalConduccionRuta || 0), '| suma de tramos mostrados:', formatHoras(sumaConduccionTramos));
-    console.log('[LeadTime] Panel de', r.disp.name, '- r.totalDetenidoRuta:', formatHoras(r.totalDetenidoRuta || 0), '| suma de tramos mostrados:', formatHoras(sumaDetenidoTramos));
-    console.log('[LeadTime] Paradas crudas de este viaje:', r.paradas.map(function (p) { return { zona: p.zona, entrada: p.entrada, salida: p.salida, conduccionHastaAqui: p.conduccionHastaAqui, detenidoRutaHastaAqui: p.detenidoRutaHastaAqui }; }));
 
     const hayCoords = r.paradas.some(function (p) { return p.lat != null; });
     document.getElementById('sp-btn-mapa').style.display = hayCoords ? 'block' : 'none';
