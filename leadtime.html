@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=10">
+    <link rel="stylesheet" href="leadtime.css?v=11">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1262,6 +1262,14 @@ function abrirPanelViaje(idx) {
     }
     document.getElementById('sp-timeline').innerHTML = construirTimelineVertical(r, desglosePorTramo);
 
+    // DIAGNOSTICO TEMPORAL: confirma si el total del encabezado realmente coincide con la
+    // suma de los tramos mostrados, en el mismo instante (para descartar cache del navegador).
+    const sumaConduccionTramos = desglosePorTramo.reduce(function (s, d) { return s + (d ? d.conduccionHoras : 0); }, 0);
+    const sumaDetenidoTramos = desglosePorTramo.reduce(function (s, d) { return s + (d ? d.detenidoHoras : 0); }, 0);
+    console.log('[LeadTime] Panel de', r.disp.name, '- r.totalConduccionRuta:', formatHoras(r.totalConduccionRuta || 0), '| suma de tramos mostrados:', formatHoras(sumaConduccionTramos));
+    console.log('[LeadTime] Panel de', r.disp.name, '- r.totalDetenidoRuta:', formatHoras(r.totalDetenidoRuta || 0), '| suma de tramos mostrados:', formatHoras(sumaDetenidoTramos));
+    console.log('[LeadTime] Paradas crudas de este viaje:', r.paradas.map(function (p) { return { zona: p.zona, entrada: p.entrada, salida: p.salida, conduccionHastaAqui: p.conduccionHastaAqui, detenidoRutaHastaAqui: p.detenidoRutaHastaAqui }; }));
+
     const hayCoords = r.paradas.some(function (p) { return p.lat != null; });
     document.getElementById('sp-btn-mapa').style.display = hayCoords ? 'block' : 'none';
 
@@ -1574,24 +1582,27 @@ async function abrirModalMapa(rIndex) {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(mapaLeaflet);
 
     // Zonas realmente visitadas en este viaje: se dibuja el POLIGONO real (con su
-    // nombre como etiqueta permanente), no un punto.
     // Zonas realmente visitadas en este viaje: se dibuja el POLIGONO real (con su
-    // numero de secuencia + nombre como etiqueta permanente), no un punto.
+    // etiqueta completa "N. Primera parada - Nombre" como en el panel), no un punto.
     const zonasEnViaje = [];
-    const numerosPorZona = {}; // z.id -> [indices de parada donde aparece], para la etiqueta
+    const indicesPorZona = {}; // z.id -> [indices de parada donde aparece]
     r.paradas.forEach(function (p, i) {
         const zonaCompleta = zonasCD.find(function (z) { return z.name === p.zona; });
         if (zonaCompleta) {
             if (zonasEnViaje.indexOf(zonaCompleta) === -1 && zonaCompleta.points && zonaCompleta.points.length >= 3) zonasEnViaje.push(zonaCompleta);
-            if (!numerosPorZona[zonaCompleta.id]) numerosPorZona[zonaCompleta.id] = [];
-            numerosPorZona[zonaCompleta.id].push(i + 1);
+            if (!indicesPorZona[zonaCompleta.id]) indicesPorZona[zonaCompleta.id] = [];
+            indicesPorZona[zonaCompleta.id].push(i);
         }
     });
     const capasZonas = [];
     zonasEnViaje.forEach(function (z) {
         const color = esPlanta(z.name) ? '#002d72' : '#16a34a';
-        const numeros = (numerosPorZona[z.id] || []).join(', ');
-        const etiqueta = numeros + '. ' + esc(z.name);
+        const indices = indicesPorZona[z.id] || [];
+        const etiquetasSecuencia = indices.map(function (i) {
+            const esFinReal = (i === r.paradas.length - 1) && r.cerrada;
+            return etiquetaParada(i, r.paradas.length, esFinReal);
+        }).join(' / ');
+        const etiqueta = etiquetasSecuencia + ' &mdash; ' + esc(z.name);
         const capa = L.polygon(z.points.map(function (p) { return [p.y, p.x]; }), { color: color, fillColor: color, weight: 2, fillOpacity: 0.28 })
             .addTo(mapaLeaflet).bindPopup(etiqueta);
         capa.bindTooltip(etiqueta, { permanent: true, direction: 'center', className: 'mapa-etiqueta-zona' });
