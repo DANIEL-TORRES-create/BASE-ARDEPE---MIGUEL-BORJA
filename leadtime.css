@@ -548,12 +548,11 @@ tbody tr.fila-ronda { cursor: pointer; }
 .fila-resumen:hover { background: #f0f4fa; }
 
 .fila-placa { cursor: pointer; }
-.fila-placa > td { border-top: 7px solid #f7f8fa; }
 .fila-placa > td:first-child { position: relative; }
 .fila-placa > td:first-child::before {
     content: '';
     position: absolute;
-    left: 0; top: 7px; bottom: 0;
+    left: 0; top: 0; bottom: 0;
     width: 4px;
     background: var(--color-estado, #c3ccd6);
     border-radius: 0 3px 3px 0;
@@ -631,6 +630,8 @@ tbody tr.fila-ronda { cursor: pointer; }
 .fila-subviaje > td:first-child { border-left: 2px solid #7f1d1d; }
 .fila-subviaje > td:last-child { border-right: 2px solid #7f1d1d; }
 .fila-subviaje-ultima > td { border-bottom: 2px solid #7f1d1d; }
+
+.fila-espaciador td { height: 8px; padding: 0; border: none; background: #f7f8fa; }
 
 .fila-subencabezado td {
     background: #eef2f9;
@@ -859,9 +860,31 @@ tbody tr.fila-ronda { cursor: pointer; }
     border: 1px solid #e2e8f0;
     border-radius: 10px;
     padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    height: 440px;
+    box-sizing: border-box;
 }
-.panel-seccion-scroll { display: flex; flex-direction: column; max-height: 460px; }
-.panel-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
+.panel-scroll { flex: 1; overflow-y: auto; padding-right: 4px; min-height: 0; }
+
+.toggle-mini {
+    display: inline-flex;
+    background: #eef2f9;
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+}
+.toggle-mini-btn {
+    background: transparent;
+    border: none;
+    padding: 3px 10px;
+    font-size: 10px;
+    font-weight: 800;
+    color: #556070;
+    border-radius: 5px;
+    cursor: pointer;
+}
+.toggle-mini-btn.activo { background: #002d72; color: white; }
 
 .panel-titulo-fila {
     display: flex;
@@ -886,9 +909,9 @@ tbody tr.fila-ronda { cursor: pointer; }
 }
 .btn-orden:hover { background: #eef2f9; }
 
-.grafico-wrap { position: relative; height: 380px; overflow-x: auto; overflow-y: hidden; }
-.grafico-inner { height: 380px; min-width: 100%; }
-.grafico-inner canvas { height: 380px !important; }
+.grafico-wrap { position: relative; flex: 1; min-height: 0; overflow-x: auto; overflow-y: hidden; }
+.grafico-inner { height: 100%; min-width: 100%; }
+.grafico-inner canvas { height: 100% !important; }
 
 .ranking-fila {
     display: flex;
