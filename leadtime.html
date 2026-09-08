@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=20">
+    <link rel="stylesheet" href="leadtime.css?v=22">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1907,12 +1907,19 @@ async function abrirModalMapa(rIndex) {
     // 2) DOS marcadores de PUNTO por cada parada -- uno para su ENTRADA y otro para su
     // SALIDA (aunque sea el mismo porton fisico), para poder distinguir uno del otro. Si
     // 2+ momentos caen en la misma zona (entrada/salida de una parada, o Salida/Retorno
-    // del viaje compartiendo Planta), cada uno se separa un poco en espiral.
+    // del viaje compartiendo Planta), cada uno se separa un poco en espiral EN EL MAPA,
+    // y ADEMAS su etiqueta se desplaza en PIXELES de pantalla (no en metros del terreno)
+    // -- el desplazamiento en metros se vuelve invisible en zoom alejado, en pixeles
+    // siempre se ve separado sin importar el zoom.
     const ocurrenciasPorZona = {};
     function proximoPuntoDeZona(claveZona, base) {
         const ocurrencia = ocurrenciasPorZona[claveZona] || 0;
         ocurrenciasPorZona[claveZona] = ocurrencia + 1;
-        return desplazarPunto(base.lat, base.lon, ocurrencia);
+        return { punto: desplazarPunto(base.lat, base.lon, ocurrencia), ocurrencia: ocurrencia };
+    }
+    function offsetEtiqueta(ocurrencia) {
+        // Apila las etiquetas en escalera hacia arriba/derecha segun cuantas van antes
+        return [ocurrencia * 18, -8 - ocurrencia * 30];
     }
 
     r.paradas.forEach(function (p, i) {
@@ -1928,11 +1935,12 @@ async function abrirModalMapa(rIndex) {
         const colorBase = esFinReal ? COLOR_RETORNO : (esPlanta(p.zona) ? COLOR_PLANTA : COLOR_CD);
 
         // Punto de ENTRADA (siempre existe)
-        const puntoEntrada = proximoPuntoDeZona(claveZona, base);
+        const resultadoEntrada = proximoPuntoDeZona(claveZona, base);
+        const puntoEntrada = resultadoEntrada.punto;
         const etiquetaEntrada = etiquetaBase + (esFinReal ? '' : ' (entrada)');
         const marcadorEntrada = L.circleMarker([puntoEntrada.lat, puntoEntrada.lon], { radius: 7, color: colorBase, fillColor: colorBase, weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
         marcadorEntrada.bindTooltip(etiquetaEntrada, {
-            permanent: true, direction: 'top', offset: [0, -8],
+            permanent: true, direction: 'top', offset: offsetEtiqueta(resultadoEntrada.ocurrencia),
             className: esFinReal ? 'mapa-etiqueta-zona mapa-etiqueta-retorno' : 'mapa-etiqueta-zona'
         });
         marcadorEntrada.bindPopup(etiquetaEntrada);
@@ -1941,10 +1949,11 @@ async function abrirModalMapa(rIndex) {
         // Punto de SALIDA (si esta confirmada -- no aplica al Retorno final, ni a una
         // ultima parada sin salida confirmada todavia)
         if (!esFinReal && p.salida && !p.salidaNoConfirmada) {
-            const puntoSalida = proximoPuntoDeZona(claveZona, base);
+            const resultadoSalida = proximoPuntoDeZona(claveZona, base);
+            const puntoSalida = resultadoSalida.punto;
             const etiquetaSalida = etiquetaBase + ' (salida)';
             const marcadorSalida = L.circleMarker([puntoSalida.lat, puntoSalida.lon], { radius: 7, color: colorBase, fillColor: '#ffffff', weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
-            marcadorSalida.bindTooltip(etiquetaSalida, { permanent: true, direction: 'top', offset: [0, -8], className: 'mapa-etiqueta-zona' });
+            marcadorSalida.bindTooltip(etiquetaSalida, { permanent: true, direction: 'top', offset: offsetEtiqueta(resultadoSalida.ocurrencia), className: 'mapa-etiqueta-zona' });
             marcadorSalida.bindPopup(etiquetaSalida);
             capasParaEncuadre.push(marcadorSalida);
         }
