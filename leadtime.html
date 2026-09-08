@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=18">
+    <link rel="stylesheet" href="leadtime.css?v=19">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -169,11 +169,11 @@
             </div>
             <div class="panel-seccion">
                 <div class="panel-titulo">N&uacute;mero de visitas por CD</div>
-                <div class="grafico-wrap"><canvas id="grafico-visitas-cd"></canvas></div>
+                <div class="grafico-wrap"><div class="grafico-inner" id="grafico-visitas-cd-inner"><canvas id="grafico-visitas-cd"></canvas></div></div>
             </div>
             <div class="panel-seccion">
                 <div class="panel-titulo">Placas con m&aacute;s viajes</div>
-                <div class="grafico-wrap"><canvas id="grafico-placas-viajes"></canvas></div>
+                <div class="grafico-wrap"><div class="grafico-inner" id="grafico-placas-viajes-inner"><canvas id="grafico-placas-viajes"></canvas></div></div>
             </div>
             <div class="panel-seccion panel-seccion-scroll">
                 <div class="panel-titulo">Ruta m&aacute;s frecuente</div>
@@ -1061,7 +1061,7 @@ function calcularEstado(r) {
             const horaTxt = ultimaCD.entrada.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
             return { clase: 'badge-historico', texto: '\u00daltima posici\u00f3n conocida: ' + ultimaCD.zona + ' (desde las ' + horaTxt + ' \u2014 sin confirmaci\u00f3n de salida)' };
         }
-        return { clase: 'badge-historico', texto: 'Sin retorno registrado' };
+        return { clase: 'badge-historico', texto: 'Sin retorno ni zonas visitadas registradas' };
     }
     return { clase: 'badge-historico', texto: 'Desconocido' };
 }
@@ -1145,10 +1145,11 @@ function obtenerInfoLlegada(viaje) {
         const ultimaCD = viaje.cds.length ? viaje.cds[viaje.cds.length - 1] : null;
         if (ultimaCD) {
             // No se puede confirmar si ya salio de esa CD (dato historico, sin GPS en
-            // vivo para verificar) -- se muestra la zona y su hora de ENTRADA (el unico
-            // dato confirmado), pero SIN duracion (no se puede calcular con certeza, y
-            // por lo tanto no debe sumarse en ningun total).
-            return { zona: ultimaCD.zona, fecha: ultimaCD.entrada, duracionHoras: null, guion: false, sinConfirmacion: true };
+            // vivo para verificar), pero SI tenemos su hora de ENTRADA confirmada -- se
+            // usa como minimo conocido (igual criterio que "viaje incompleto": un numero
+            // real, marcado como minimo, no como el total final confirmado).
+            const dur = inicioParaCalculo ? (ultimaCD.entrada - inicioParaCalculo) / 3600000 : null;
+            return { zona: ultimaCD.zona, fecha: ultimaCD.entrada, duracionHoras: dur, guion: false, sinConfirmacion: true };
         }
         return { zona: null, fecha: null, duracionHoras: null, guion: true };
     }
@@ -1201,12 +1202,17 @@ function agruparPorPlaca(lista) {
         // guion -- no tiene sentido sumar un numero parcial que se veria como definitivo.
         if (g.guionLlegada) {
             g.duracionHoras = null;
+            g.duracionSinConfirmar = false;
         } else {
+            g.duracionSinConfirmar = false;
             g.duracionHoras = g.viajes.reduce(function (s, v, idx) {
                 if (v.cerrada) return s + (v.duracionHoras || 0);
                 if (idx === g.viajes.length - 1) {
                     const infoUlt = obtenerInfoLlegada(v);
-                    if (!infoUlt.guion && infoUlt.duracionHoras != null) return s + infoUlt.duracionHoras;
+                    if (!infoUlt.guion && infoUlt.duracionHoras != null) {
+                        if (v.sinSalidaConocida || infoUlt.sinConfirmacion) g.duracionSinConfirmar = true;
+                        return s + infoUlt.duracionHoras;
+                    }
                 }
                 return s;
             }, 0);
@@ -1292,7 +1298,9 @@ function crearFilaResumenConductores(g) {
 }
 
 function crearFilaPlaca(g) {
-    const duracionTxt = (g.duracionHoras != null) ? formatHoras(g.duracionHoras) : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const duracionTxt = (g.duracionHoras != null)
+        ? (formatHoras(g.duracionHoras) + (g.duracionSinConfirmar ? ' <span style="color:#c0392b;" title="Minimo conocido, no el total confirmado (falta dato de salida)">*</span>' : ''))
+        : '<span style="color:#9aa4b2;">&#8212;</span>';
     const primeraSalidaTxt = g.primeraSalida ? formatFechaHora(g.primeraSalida) : '<span style="color:#9aa4b2;">&#8212;</span>';
     const zonaLlegadaTxt = g.zonaLlegada ? esc(g.zonaLlegada) : '<span style="color:#9aa4b2;">&#8212;</span>';
     const fechaLlegadaTxt = (g.fechaLlegada && !g.guionLlegada) ? formatFechaHora(g.fechaLlegada) : '<span style="color:#9aa4b2;">&#8212;</span>';
@@ -1326,7 +1334,7 @@ function crearFilaSubViaje(v, numeroViaje, flatIdx, esUltima) {
     const puntoLlegadaTxt = info.zona ? esc(info.zona) : '<span style="color:#9aa4b2;">&#8212;</span>';
     const fechaLlegadaTxt = (info.fecha && !info.guion) ? formatFechaHora(info.fecha) : '<span style="color:#9aa4b2;">&#8212;</span>';
     const duracionTxt = (info.duracionHoras != null)
-        ? (formatHoras(info.duracionHoras) + (v.sinSalidaConocida ? ' <span style="color:#c0392b;" title="Salida real fuera del filtro: minimo, no el tiempo total real">*</span>' : ''))
+        ? (formatHoras(info.duracionHoras) + ((v.sinSalidaConocida || info.sinConfirmacion) ? ' <span style="color:#c0392b;" title="Minimo conocido, no el total confirmado (falta dato de salida)">*</span>' : ''))
         : '<span style="color:#9aa4b2;">&#8212;</span>';
     const estado = calcularEstado(v);
     const cdsTxt = (v.cdsVisitadas && v.cdsVisitadas.length) ? v.cdsVisitadas.join(', ') : '\u2014';
@@ -1589,6 +1597,7 @@ function renderizarPanelLateral() {
 
     // ---- Grafico de lineas: numero de visitas por CD ----
     const cdsOrdenadosPorVisitas = Object.keys(visitasPorCD).sort(function (a, b) { return visitasPorCD[b] - visitasPorCD[a]; });
+    document.getElementById('grafico-visitas-cd-inner').style.width = Math.max(600, cdsOrdenadosPorVisitas.length * 70) + 'px';
     if (graficoVisitasCD) graficoVisitasCD.destroy();
     graficoVisitasCD = new Chart(document.getElementById('grafico-visitas-cd'), {
         type: 'line',
@@ -1602,9 +1611,10 @@ function renderizarPanelLateral() {
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
     });
 
-    // ---- Grafico de barras verticales: placas con mas viajes ----
+    // ---- Grafico de barras verticales: placas con mas viajes (todas, no solo top 15) ----
     const grupos = agruparPorPlaca(lista);
-    const placasOrdenadas = grupos.slice().sort(function (a, b) { return b.viajes.length - a.viajes.length; }).slice(0, 15);
+    const placasOrdenadas = grupos.slice().sort(function (a, b) { return b.viajes.length - a.viajes.length; });
+    document.getElementById('grafico-placas-viajes-inner').style.width = Math.max(600, placasOrdenadas.length * 55) + 'px';
     if (graficoPlacasViajes) graficoPlacasViajes.destroy();
     graficoPlacasViajes = new Chart(document.getElementById('grafico-placas-viajes'), {
         type: 'bar',
@@ -1670,7 +1680,7 @@ document.addEventListener('click', function (e) {
 // haber visto su salida real de Planta dentro del filtro). Busca hacia atras, unicamente
 // para ESA unidad, hasta encontrar su ultima visita real a Planta Pucusana.
 
-const BUSQUEDA_ATRAS_HORAS = 72;
+const BUSQUEDA_ATRAS_HORAS = 120;
 
 async function buscarSalidaPlantaAnterior(disp, antesDeFecha) {
     const desde = new Date(antesDeFecha.getTime() - BUSQUEDA_ATRAS_HORAS * 3600000);
@@ -1718,7 +1728,7 @@ async function completarViajesIncompletos(rondas) {
         } catch (e) {
             console.error('Error buscando salida anterior para', r.disp.name, e);
         }
-        if (i < incompletas.length - 1) await sleep(150);
+        if (i < incompletas.length - 1) await sleep(250);
     }
 }
 
@@ -1727,7 +1737,7 @@ async function completarViajesIncompletos(rondas) {
 // estado en vivo como ya funciona). Busca hacia adelante, encadenando cuantas CDs haga
 // falta, hasta encontrar el retorno real a Planta Pucusana o agotar la ventana/72h.
 
-const BUSQUEDA_ADELANTE_HORAS = 72;
+const BUSQUEDA_ADELANTE_HORAS = 120;
 const MAX_ENCADENAMIENTOS = 15; // limite de seguridad para no iterar sin fin
 
 async function buscarCierreHaciaAdelante(ronda, limiteFinal) {
@@ -1789,7 +1799,7 @@ async function completarViajesSinRetorno(rondas, toDate) {
         } catch (e) {
             console.error('Error buscando cierre hacia adelante para', abiertas[i].disp.name, e);
         }
-        if (i < abiertas.length - 1) await sleep(150);
+        if (i < abiertas.length - 1) await sleep(250);
     }
 }
 
@@ -1837,10 +1847,17 @@ async function abrirModalMapa(rIndex) {
         capasParaEncuadre.push(capa);
     });
 
-    // 2) Un marcador de PUNTO independiente por cada parada, centrado en la zona (no en
-    // el GPS exacto del evento, que suele caer en el borde). Si 2+ paradas comparten la
-    // misma zona (ej. Salida y Retorno en Planta), se separan un poco entre si.
+    // 2) DOS marcadores de PUNTO por cada parada -- uno para su ENTRADA y otro para su
+    // SALIDA (aunque sea el mismo porton fisico), para poder distinguir uno del otro. Si
+    // 2+ momentos caen en la misma zona (entrada/salida de una parada, o Salida/Retorno
+    // del viaje compartiendo Planta), cada uno se separa un poco en espiral.
     const ocurrenciasPorZona = {};
+    function proximoPuntoDeZona(claveZona, base) {
+        const ocurrencia = ocurrenciasPorZona[claveZona] || 0;
+        ocurrenciasPorZona[claveZona] = ocurrencia + 1;
+        return desplazarPunto(base.lat, base.lon, ocurrencia);
+    }
+
     r.paradas.forEach(function (p, i) {
         const zonaCompleta = zonasCD.find(function (z) { return z.name === p.zona; });
         const centro = zonaCompleta ? calcularCentroidePoligono(zonaCompleta.points) : null;
@@ -1848,23 +1865,32 @@ async function abrirModalMapa(rIndex) {
         if (!base) return;
 
         const claveZona = zonaCompleta ? zonaCompleta.id : p.zona;
-        const ocurrencia = ocurrenciasPorZona[claveZona] || 0;
-        ocurrenciasPorZona[claveZona] = ocurrencia + 1;
-        const punto = desplazarPunto(base.lat, base.lon, ocurrencia);
-
         const esUltima = i === r.paradas.length - 1;
         const esFinReal = esUltima && r.cerrada;
-        const esRetorno = esFinReal;
-        const color = esRetorno ? COLOR_RETORNO : (esPlanta(p.zona) ? COLOR_PLANTA : COLOR_CD);
-        const etiqueta = etiquetaParada(i, r.paradas.length, esFinReal) + ' &mdash; ' + esc(p.zona);
+        const etiquetaBase = etiquetaParada(i, r.paradas.length, esFinReal) + ' &mdash; ' + esc(p.zona);
+        const colorBase = esFinReal ? COLOR_RETORNO : (esPlanta(p.zona) ? COLOR_PLANTA : COLOR_CD);
 
-        const marcador = L.circleMarker([punto.lat, punto.lon], { radius: 7, color: color, fillColor: color, weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
-        marcador.bindTooltip(etiqueta, {
+        // Punto de ENTRADA (siempre existe)
+        const puntoEntrada = proximoPuntoDeZona(claveZona, base);
+        const etiquetaEntrada = etiquetaBase + (esFinReal ? '' : ' (entrada)');
+        const marcadorEntrada = L.circleMarker([puntoEntrada.lat, puntoEntrada.lon], { radius: 7, color: colorBase, fillColor: colorBase, weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
+        marcadorEntrada.bindTooltip(etiquetaEntrada, {
             permanent: true, direction: 'top', offset: [0, -8],
-            className: esRetorno ? 'mapa-etiqueta-zona mapa-etiqueta-retorno' : 'mapa-etiqueta-zona'
+            className: esFinReal ? 'mapa-etiqueta-zona mapa-etiqueta-retorno' : 'mapa-etiqueta-zona'
         });
-        marcador.bindPopup(etiqueta);
-        capasParaEncuadre.push(marcador);
+        marcadorEntrada.bindPopup(etiquetaEntrada);
+        capasParaEncuadre.push(marcadorEntrada);
+
+        // Punto de SALIDA (si esta confirmada -- no aplica al Retorno final, ni a una
+        // ultima parada sin salida confirmada todavia)
+        if (!esFinReal && p.salida && !p.salidaNoConfirmada) {
+            const puntoSalida = proximoPuntoDeZona(claveZona, base);
+            const etiquetaSalida = etiquetaBase + ' (salida)';
+            const marcadorSalida = L.circleMarker([puntoSalida.lat, puntoSalida.lon], { radius: 7, color: colorBase, fillColor: '#ffffff', weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
+            marcadorSalida.bindTooltip(etiquetaSalida, { permanent: true, direction: 'top', offset: [0, -8], className: 'mapa-etiqueta-zona' });
+            marcadorSalida.bindPopup(etiquetaSalida);
+            capasParaEncuadre.push(marcadorSalida);
+        }
     });
 
     // 3) Ruta real con LogRecord -- el tramo final (llegando al Retorno) se dibuja en un
@@ -1872,7 +1898,11 @@ async function abrirModalMapa(rIndex) {
     // dato SIN cache, para traer la posicion mas fresca posible (no la de la ultima
     // consulta general). Si esta cerrado o EN CD, se reutiliza el cache normal.
     const esEnMovimientoVivo = !r.cerrada && (r.estadoVivo === 'EN_RUTA' || r.estadoVivo === 'DETENIDO_EN_RUTA');
-    const inicioVentana = r.paradas[0].entrada;
+    // OJO: se usa la SALIDA real de la primera parada (cuando el camion efectivamente
+    // arranca), no su entrada -- si se usara la entrada, se incluirian los puntos GPS de
+    // cuando esta parqueado quieto ANTES de salir, generando lineas de mas junto al
+    // limite de la zona (bug confirmado).
+    const inicioVentana = r.paradas[0].salida || r.paradas[0].entrada;
     const finVentana = esEnMovimientoVivo ? new Date() : (r.retorno || (r.paradas[r.paradas.length - 1] && r.paradas[r.paradas.length - 1].salida) || new Date());
 
     try {
@@ -1882,7 +1912,13 @@ async function abrirModalMapa(rIndex) {
         if (esEnMovimientoVivo) r._logsViaje = logs; // refresca el cache con el dato fresco
 
         if (logs.length > 1) {
-            const logsOrdenados = logs.slice().sort(function (a, b) { return new Date(a.dateTime) - new Date(b.dateTime); });
+            // Filtro defensivo: aunque los logs vengan de un cache mas ancho (calculado
+            // para conduccion/detenido, que si arranca desde la entrada), la linea del
+            // mapa NUNCA debe incluir puntos de antes de la salida real ni de despues del
+            // retorno real.
+            const logsOrdenados = logs.slice()
+                .filter(function (l) { const t = new Date(l.dateTime).getTime(); return t >= inicioVentana.getTime() && t <= finVentana.getTime(); })
+                .sort(function (a, b) { return new Date(a.dateTime) - new Date(b.dateTime); });
 
             // Punto de corte: inicio del ultimo tramo (salida de la penultima parada)
             let corteRetorno = null;
