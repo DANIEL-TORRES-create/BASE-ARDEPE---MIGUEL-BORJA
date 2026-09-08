@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=19">
+    <link rel="stylesheet" href="leadtime.css?v=20">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -153,17 +153,23 @@
     <!-- PESTANA 2: Tiempo en Zonas y Tendencias -->
     <div id="vista-tendencias" class="vista-tab" style="display:none;">
         <div class="tendencias-grid">
-            <div class="panel-seccion panel-seccion-scroll">
+            <div class="panel-seccion">
                 <div class="panel-titulo-fila">
                     <span class="panel-titulo">CDs con m&aacute;s tiempo de espera</span>
                     <button class="btn-orden" onclick="invertirOrden('cds')">&#8645; Invertir orden</button>
                 </div>
                 <div id="ranking-cds" class="panel-scroll"></div>
             </div>
-            <div class="panel-seccion panel-seccion-scroll">
+            <div class="panel-seccion">
                 <div class="panel-titulo-fila">
-                    <span class="panel-titulo">Viajes m&aacute;s largos</span>
-                    <button class="btn-orden" onclick="invertirOrden('rondas')">&#8645; Invertir orden</button>
+                    <span class="panel-titulo">Viajes m&aacute;s largos (suma de horas)</span>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <div class="toggle-mini" id="toggle-rondas">
+                            <button class="toggle-mini-btn activo" onclick="cambiarAgrupacion('rondas','placa')">Placa</button>
+                            <button class="toggle-mini-btn" onclick="cambiarAgrupacion('rondas','conductor')">Conductor</button>
+                        </div>
+                        <button class="btn-orden" onclick="invertirOrden('rondas')">&#8645; Invertir</button>
+                    </div>
                 </div>
                 <div id="ranking-rondas" class="panel-scroll"></div>
             </div>
@@ -172,10 +178,16 @@
                 <div class="grafico-wrap"><div class="grafico-inner" id="grafico-visitas-cd-inner"><canvas id="grafico-visitas-cd"></canvas></div></div>
             </div>
             <div class="panel-seccion">
-                <div class="panel-titulo">Placas con m&aacute;s viajes</div>
+                <div class="panel-titulo-fila">
+                    <span class="panel-titulo">Placas con m&aacute;s viajes</span>
+                    <div class="toggle-mini" id="toggle-placas">
+                        <button class="toggle-mini-btn activo" onclick="cambiarAgrupacion('placas','placa')">Placa</button>
+                        <button class="toggle-mini-btn" onclick="cambiarAgrupacion('placas','conductor')">Conductor</button>
+                    </div>
+                </div>
                 <div class="grafico-wrap"><div class="grafico-inner" id="grafico-placas-viajes-inner"><canvas id="grafico-placas-viajes"></canvas></div></div>
             </div>
-            <div class="panel-seccion panel-seccion-scroll">
+            <div class="panel-seccion">
                 <div class="panel-titulo">Ruta m&aacute;s frecuente</div>
                 <div id="ranking-rutas" class="panel-scroll"></div>
             </div>
@@ -332,18 +344,24 @@ const RADIO_ZONA_METROS = 200; // fallback: si el punto no cae dentro del poligo
 // evento (que suele caer en el borde/portón de entrada o salida).
 function calcularCentroidePoligono(points) {
     if (!points || points.length === 0) return null;
-    let sumaLat = 0, sumaLon = 0;
-    points.forEach(function (p) { sumaLat += p.y; sumaLon += p.x; });
-    return { lat: sumaLat / points.length, lon: sumaLon / points.length };
+    // Centro del rectangulo que envuelve la zona (bounding box) -- mas confiable que el
+    // promedio de vertices para formas irregulares, cae mejor "al medio" visualmente.
+    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    points.forEach(function (p) {
+        if (p.y < minLat) minLat = p.y;
+        if (p.y > maxLat) maxLat = p.y;
+        if (p.x < minLon) minLon = p.x;
+        if (p.x > maxLon) maxLon = p.x;
+    });
+    return { lat: (minLat + maxLat) / 2, lon: (minLon + maxLon) / 2 };
 }
 
 // Cuando 2+ paradas caen en la misma zona (ej. Salida y Retorno, ambas en Planta), cada
-// ocurrencia se separa un poco del centro (en espiral), para que no se superpongan pero
-// se mantengan dentro de la geocerca.
+// ocurrencia se separa claramente del centro (en espiral), para que no se superpongan.
 function desplazarPunto(lat, lon, indiceOcurrencia) {
     if (indiceOcurrencia === 0) return { lat: lat, lon: lon };
     const angulo = indiceOcurrencia * 2.4;
-    const radio = 0.00022 * indiceOcurrencia;
+    const radio = 0.0005 * indiceOcurrencia; // ~55m por ocurrencia, notorio pero con menos riesgo de salirse de zonas chicas
     return { lat: lat + radio * Math.cos(angulo), lon: lon + radio * Math.sin(angulo) };
 }
 
@@ -717,10 +735,10 @@ async function consultar() {
             if (i + BLOQUE_DISPOSITIVOS < dispositivos.length) await sleep(PAUSA_MS);
         }
 
-        actualizarProgreso(dispositivos.length, dispositivos.length, 'Buscando inicio real de viajes incompletos (hasta 120h atr\u00e1s)...');
+        actualizarProgreso(dispositivos.length, dispositivos.length, 'Buscando inicio real de viajes incompletos (hasta ' + BUSQUEDA_ATRAS_HORAS + 'h atr\u00e1s)...');
         await completarViajesIncompletos(todasLasRondas);
 
-        actualizarProgreso(dispositivos.length, dispositivos.length, 'Buscando retorno real de viajes sin cierre (hasta 120h adelante)...');
+        actualizarProgreso(dispositivos.length, dispositivos.length, 'Buscando retorno real de viajes sin cierre (hasta ' + BUSQUEDA_ADELANTE_HORAS + 'h adelante)...');
         await completarViajesSinRetorno(todasLasRondas, toDate);
 
         actualizarProgreso(dispositivos.length, dispositivos.length, 'Verificando estado en vivo de rondas abiertas...');
@@ -1274,7 +1292,8 @@ function renderizarComportamiento() {
     rondasFiltradasActuales = [];
 
     let html = '';
-    grupos.forEach(function (g) {
+    grupos.forEach(function (g, gIdx) {
+        if (gIdx > 0) html += '<tr class="fila-espaciador"><td colspan="11"></td></tr>';
         html += crearFilaPlaca(g);
         if (g.abierto) {
             if (g.resumenPorConductor) html += crearFilaResumenConductores(g);
@@ -1545,6 +1564,20 @@ function actualizarKPIs() {
 // ---------------- Panel lateral de rankings ----------------
 
 let ordenInvertido = { cds: false, rondas: false };
+let agrupacionPor = { rondas: 'placa', placas: 'placa' };
+
+function cambiarAgrupacion(cual, tipo) {
+    agrupacionPor[cual] = tipo;
+    const contToggle = document.getElementById('toggle-' + cual);
+    if (contToggle) {
+        Array.prototype.forEach.call(contToggle.querySelectorAll('.toggle-mini-btn'), function (btn) { btn.classList.remove('activo'); });
+        const btnActivo = Array.prototype.find.call(contToggle.querySelectorAll('.toggle-mini-btn'), function (btn) {
+            return btn.getAttribute('onclick').indexOf("'" + tipo + "'") !== -1;
+        });
+        if (btnActivo) btnActivo.classList.add('activo');
+    }
+    renderizarPanelLateral();
+}
 let graficoVisitasCD = null;
 let graficoPlacasViajes = null;
 
@@ -1576,24 +1609,14 @@ function renderizarPanelLateral() {
     });
     pintarRanking('ranking-cds', mapaCD, formatHoras, ordenInvertido.cds);
 
-    // ---- Viajes mas largos (todos, no solo 5) ----
-    const cerradas = lista.filter(function (r) { return r.cerrada; }).slice()
-        .sort(function (a, b) { return ordenInvertido.rondas ? a.duracionHoras - b.duracionHoras : b.duracionHoras - a.duracionHoras; });
-    const contRondas = document.getElementById('ranking-rondas');
-    if (cerradas.length === 0) {
-        contRondas.innerHTML = '<div class="ranking-vacio">Sin viajes terminados a\u00fan.</div>';
-    } else {
-        const maxDur = Math.max.apply(null, cerradas.map(function (r) { return r.duracionHoras; })) || 1;
-        contRondas.innerHTML = cerradas.map(function (r, i) {
-            const pct = Math.max(6, Math.round((r.duracionHoras / maxDur) * 100));
-            return '<div class="ranking-fila">' +
-                '<span class="ranking-pos">' + (i + 1) + '</span>' +
-                '<span class="ranking-nombre">&#128666; ' + esc(r.disp.name) + '</span>' +
-                '<span class="ranking-valor">' + formatHoras(r.duracionHoras) + '</span>' +
-                '<div class="ranking-barra-fondo"><div class="ranking-barra ranking-barra-ambar" style="width:' + pct + '%"></div></div>' +
-                '</div>';
-        }).join('');
-    }
+    // ---- Viajes mas largos: SUMA de horas, agrupada por Placa o Conductor (toggle) ----
+    const cerradas = lista.filter(function (r) { return r.cerrada; });
+    const mapaRondas = {};
+    cerradas.forEach(function (r) {
+        const clave = agrupacionPor.rondas === 'conductor' ? (mapaConductoresGlobal[r.driverId] || r.driverId || 'SIN CONDUCTOR') : r.disp.name;
+        mapaRondas[clave] = (mapaRondas[clave] || 0) + r.duracionHoras;
+    });
+    pintarRanking('ranking-rondas', mapaRondas, formatHoras, ordenInvertido.rondas, agrupacionPor.rondas === 'placa' ? '\u{1F69A} ' : '\u{1F464} ');
 
     // ---- Grafico de lineas: numero de visitas por CD ----
     const cdsOrdenadosPorVisitas = Object.keys(visitasPorCD).sort(function (a, b) { return visitasPorCD[b] - visitasPorCD[a]; });
@@ -1611,16 +1634,20 @@ function renderizarPanelLateral() {
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
     });
 
-    // ---- Grafico de barras verticales: placas con mas viajes (todas, no solo top 15) ----
-    const grupos = agruparPorPlaca(lista);
-    const placasOrdenadas = grupos.slice().sort(function (a, b) { return b.viajes.length - a.viajes.length; });
-    document.getElementById('grafico-placas-viajes-inner').style.width = Math.max(600, placasOrdenadas.length * 55) + 'px';
+    // ---- Grafico de barras verticales: cuantos viajes, agrupado por Placa o Conductor (toggle) ----
+    const mapaConteoViajes = {};
+    lista.forEach(function (r) {
+        const clave = agrupacionPor.placas === 'conductor' ? (mapaConductoresGlobal[r.driverId] || r.driverId || 'SIN CONDUCTOR') : r.disp.name;
+        mapaConteoViajes[clave] = (mapaConteoViajes[clave] || 0) + 1;
+    });
+    const clavesConteo = Object.keys(mapaConteoViajes).sort(function (a, b) { return mapaConteoViajes[b] - mapaConteoViajes[a]; });
+    document.getElementById('grafico-placas-viajes-inner').style.width = Math.max(600, clavesConteo.length * 55) + 'px';
     if (graficoPlacasViajes) graficoPlacasViajes.destroy();
     graficoPlacasViajes = new Chart(document.getElementById('grafico-placas-viajes'), {
         type: 'bar',
         data: {
-            labels: placasOrdenadas.map(function (g) { return g.disp.name; }),
-            datasets: [{ label: 'Viajes', data: placasOrdenadas.map(function (g) { return g.viajes.length; }), backgroundColor: '#d97706', borderRadius: 4 }]
+            labels: clavesConteo,
+            datasets: [{ label: 'Viajes', data: clavesConteo.map(function (k) { return mapaConteoViajes[k]; }), backgroundColor: '#d97706', borderRadius: 4 }]
         },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
     });
@@ -1634,7 +1661,7 @@ function renderizarPanelLateral() {
     pintarRanking('ranking-rutas', mapaRutas, function (v) { return v + ' viaje' + (v !== 1 ? 's' : ''); }, false);
 }
 
-function pintarRanking(elId, mapaValores, formateador, invertido) {
+function pintarRanking(elId, mapaValores, formateador, invertido, prefijo) {
     const cont = document.getElementById(elId);
     let claves = Object.keys(mapaValores).sort(function (a, b) { return mapaValores[b] - mapaValores[a]; });
     if (invertido) claves = claves.reverse();
@@ -1644,7 +1671,7 @@ function pintarRanking(elId, mapaValores, formateador, invertido) {
         const pct = Math.max(6, Math.round((mapaValores[k] / maximo) * 100));
         return '<div class="ranking-fila">' +
             '<span class="ranking-pos">' + (i + 1) + '</span>' +
-            '<span class="ranking-nombre" title="' + esc(k) + '">' + esc(k) + '</span>' +
+            '<span class="ranking-nombre" title="' + esc(k) + '">' + (prefijo || '') + esc(k) + '</span>' +
             '<span class="ranking-valor">' + formateador(mapaValores[k]) + '</span>' +
             '<div class="ranking-barra-fondo"><div class="ranking-barra" style="width:' + pct + '%"></div></div>' +
             '</div>';
@@ -1675,21 +1702,23 @@ document.addEventListener('click', function (e) {
     if (combo && !combo.contains(e.target)) document.getElementById('combo-exportar-lista').classList.remove('open');
 });
 
-// ---------------- Busqueda hacia atras (120h) para viajes con inicio incompleto ----------------
+// ---------------- Busqueda hacia atras (72h) para viajes con inicio incompleto ----------------
 // Solo se dispara para el/los dispositivos puntuales que arrancaron directo en una CD (sin
 // haber visto su salida real de Planta dentro del filtro). Busca hacia atras, unicamente
 // para ESA unidad, hasta encontrar su ultima visita real a Planta Pucusana.
 
 const BUSQUEDA_ATRAS_HORAS = 120;
 
-async function buscarSalidaPlantaAnterior(disp, antesDeFecha) {
+// Busca hacia atras TODOS los eventos resueltos (no solo Planta), para poder reconstruir
+// el/los tramo(s) intermedios completos -- no solo el punto de Planta.
+async function buscarEventosAnteriores(disp, antesDeFecha) {
     const desde = new Date(antesDeFecha.getTime() - BUSQUEDA_ATRAS_HORAS * 3600000);
     const eventos = await obtenerEventosConReintento(disp, desde.toISOString(), antesDeFecha.toISOString());
     if (eventos.length === 0) return null;
 
     const logs = await obtenerLogRecordConReintento(disp.id, new Date(desde.getTime() - MARGEN_LOGRECORD_HORAS * 3600000).toISOString(), new Date(antesDeFecha.getTime() + MARGEN_LOGRECORD_HORAS * 3600000).toISOString());
 
-    const candidatos = eventos.map(function (ev) {
+    let resueltos = eventos.map(function (ev) {
         const inicio = new Date(ev.activeFrom);
         const horas = duracionAHoras(ev.duration);
         const fin = new Date(inicio.getTime() + horas * 3600000);
@@ -1697,11 +1726,13 @@ async function buscarSalidaPlantaAnterior(disp, antesDeFecha) {
         const lat = punto ? punto.latitude : null;
         const lon = punto ? punto.longitude : null;
         const zona = resolverZonaPorCoord(lat, lon);
-        return { inicio: inicio, fin: fin, lat: lat, lon: lon, zonaNombre: zona ? zona.name : null, driverId: ev.driver ? ev.driver.id : null, logsUsados: logs };
-    }).filter(function (e) { return e.zonaNombre && esPlanta(e.zonaNombre) && e.inicio < antesDeFecha; })
-      .sort(function (a, b) { return b.inicio - a.inicio; }); // mas reciente primero
+        return { inicio: inicio, fin: fin, lat: lat, lon: lon, zonaNombre: zona ? zona.name : null, driverId: ev.driver ? ev.driver.id : null };
+    }).filter(function (e) { return e.zonaNombre && e.inicio < antesDeFecha; })
+      .sort(function (a, b) { return a.inicio - b.inicio; }); // cronologico ascendente
 
-    return candidatos.length ? candidatos[0] : null;
+    resueltos = fusionarEventosRuido(resueltos.map(function (e) { return { inicio: e.inicio, fin: e.fin, lat: e.lat, lon: e.lon, zonaNombre: e.zonaNombre, driverId: e.driverId }; }));
+
+    return { eventos: resueltos, logsUsados: logs };
 }
 
 async function completarViajesIncompletos(rondas) {
@@ -1711,31 +1742,57 @@ async function completarViajesIncompletos(rondas) {
     for (let i = 0; i < incompletas.length; i++) {
         const r = incompletas[i];
         try {
-            const encontrada = await buscarSalidaPlantaAnterior(r.disp, r.paradas[0].entrada);
-            if (encontrada) {
-                const primeraParadaOriginal = r.paradas[0];
-                const nuevaParada = { zona: encontrada.zonaNombre, entrada: encontrada.inicio, salida: encontrada.fin, lat: encontrada.lat, lon: encontrada.lon, driverId: r.driverId };
-                if (nuevaParada.salida && primeraParadaOriginal.entrada) {
-                    const d = calcularConduccionDetenido(encontrada.logsUsados || [], nuevaParada.salida, primeraParadaOriginal.entrada);
-                    primeraParadaOriginal.conduccionHastaAqui = d.conduccionHoras;
-                    primeraParadaOriginal.detenidoRutaHastaAqui = d.detenidoHoras;
+            const resultado = await buscarEventosAnteriores(r.disp, r.paradas[0].entrada);
+            if (resultado && resultado.eventos.length) {
+                const eventosOrdenados = resultado.eventos;
+                // Se busca la salida de Planta MAS RECIENTE (la mas cercana al corte,
+                // recorriendo de atras hacia adelante) -- esa es el ancla del viaje.
+                let idxUltimaPlanta = -1;
+                for (let j = eventosOrdenados.length - 1; j >= 0; j--) {
+                    if (esPlanta(eventosOrdenados[j].zonaNombre)) { idxUltimaPlanta = j; break; }
                 }
-                r.paradas.unshift(nuevaParada);
-                r.salida = nuevaParada.salida;
-                r.sinSalidaConocida = false;
-                calcularTotalesRuta(r);
+                if (idxUltimaPlanta !== -1) {
+                    // Se reconstruyen TODAS las paradas desde esa Planta hasta el final de
+                    // la busqueda (Planta + cualquier CD intermedia encontrada en el camino,
+                    // en orden cronologico) -- no solo el punto de Planta.
+                    const paradasNuevas = eventosOrdenados.slice(idxUltimaPlanta).map(function (e) {
+                        return { zona: e.zonaNombre, entrada: e.inicio, salida: e.fin, lat: e.lat, lon: e.lon, driverId: e.driverId || r.driverId };
+                    });
+
+                    for (let k = 1; k < paradasNuevas.length; k++) {
+                        const a = paradasNuevas[k - 1], b = paradasNuevas[k];
+                        if (a.salida && b.entrada) {
+                            const d = calcularConduccionDetenido(resultado.logsUsados, a.salida, b.entrada);
+                            b.conduccionHastaAqui = d.conduccionHoras;
+                            b.detenidoRutaHastaAqui = d.detenidoHoras;
+                        }
+                    }
+
+                    const ultimaNueva = paradasNuevas[paradasNuevas.length - 1];
+                    const primeraParadaOriginal = r.paradas[0];
+                    if (ultimaNueva.salida && primeraParadaOriginal.entrada) {
+                        const d = calcularConduccionDetenido(resultado.logsUsados, ultimaNueva.salida, primeraParadaOriginal.entrada);
+                        primeraParadaOriginal.conduccionHastaAqui = d.conduccionHoras;
+                        primeraParadaOriginal.detenidoRutaHastaAqui = d.detenidoHoras;
+                    }
+
+                    r.paradas.unshift.apply(r.paradas, paradasNuevas);
+                    r.salida = paradasNuevas[0].salida;
+                    r.sinSalidaConocida = false;
+                    calcularTotalesRuta(r);
+                }
             }
         } catch (e) {
-            console.error('Error buscando salida anterior para', r.disp.name, e);
+            console.error('Error buscando eventos anteriores para', r.disp.name, e);
         }
         if (i < incompletas.length - 1) await sleep(250);
     }
 }
 
-// ---------------- Busqueda hacia adelante (120h) para viajes sin retorno ----------------
+// ---------------- Busqueda hacia adelante (72h) para viajes sin retorno ----------------
 // Solo aplica cuando el filtro NO llega al momento actual (si llega al presente, se usa el
 // estado en vivo como ya funciona). Busca hacia adelante, encadenando cuantas CDs haga
-// falta, hasta encontrar el retorno real a Planta Pucusana o agotar la ventana/120h.
+// falta, hasta encontrar el retorno real a Planta Pucusana o agotar la ventana/72h.
 
 const BUSQUEDA_ADELANTE_HORAS = 120;
 const MAX_ENCADENAMIENTOS = 15; // limite de seguridad para no iterar sin fin
