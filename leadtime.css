@@ -6,7 +6,7 @@ body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     background: linear-gradient(180deg, #eef1f6 0%, #e9edf3 100%);
     margin: 0;
-    padding: 20px;
+    padding: 14px;
     box-sizing: border-box;
 }
 
@@ -14,14 +14,14 @@ body {
     background: white;
     border-radius: 14px;
     box-shadow: 0 10px 40px -8px rgba(0,45,114,0.18), 0 2px 8px rgba(0,0,0,0.06);
-    padding: 25px;
+    padding: 14px 22px 18px;
     max-width: 1780px;
     margin: auto;
     border-top: 6px solid #002d72;
     position: relative;
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 40px); /* 40px = padding vertical del body (20px arriba + 20px abajo) */
+    height: calc(100vh - 28px); /* 28px = padding vertical del body (14px arriba + 14px abajo) */
     box-sizing: border-box;
 }
 
@@ -41,11 +41,11 @@ body {
 .header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 10px;
+    align-items: center;
+    margin-bottom: 4px;
     flex-wrap: wrap;
     gap: 10px;
-    padding-top: 2px;
+    padding-top: 0;
 }
 
 .logo-header {
@@ -76,7 +76,7 @@ body {
     display: flex;
     gap: 12px;
     flex-wrap: wrap;
-    margin-bottom: 14px;
+    margin-bottom: 8px;
 }
 
 .kpi-box {
