@@ -26,14 +26,14 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 16px;
+    margin-bottom: 10px;
     flex-wrap: wrap;
     gap: 10px;
-    padding-top: 4px;
+    padding-top: 2px;
 }
 
 .logo-header {
-    height: 150px;
+    height: 85px;
     width: auto;
     object-fit: contain;
     flex: 0 0 auto;
@@ -491,22 +491,6 @@ tbody tr.fila-ronda { cursor: pointer; }
 }
 .btn-mapa-mini:hover { background: #eef2f9; }
 
-/* ---------- Panel lateral ---------- */
-.panel-lateral {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 14px 18px;
-    display: flex;
-    flex-direction: row;
-    gap: 24px;
-    margin-bottom: 14px;
-}
-.panel-lateral .panel-seccion { flex: 1; min-width: 0; }
-
-@media (max-width: 700px) {
-    .panel-lateral { flex-direction: column; }
-}
 
 /* ---------- Pestanas ---------- */
 .tabs-bar {
@@ -563,16 +547,14 @@ tbody tr.fila-ronda { cursor: pointer; }
     top: 100%;
     width: 2px;
     height: 10px;
-    background: #002d72;
+    background: #7f1d1d;
     z-index: 1;
 }
 
-.fila-resumen-conductores > td:first-child,
 .fila-subencabezado > td:first-child,
 .fila-subviaje > td:first-child {
     position: relative;
 }
-.fila-resumen-conductores > td:first-child::before,
 .fila-subencabezado > td:first-child::before,
 .fila-subviaje > td:first-child::before {
     content: '';
@@ -581,7 +563,7 @@ tbody tr.fila-ronda { cursor: pointer; }
     top: 0;
     bottom: 0;
     width: 2px;
-    background: #b9c4d4;
+    background: #7f1d1d;
 }
 .fila-subviaje-ultima > td:first-child::before {
     bottom: 50%;
@@ -593,7 +575,7 @@ tbody tr.fila-ronda { cursor: pointer; }
     top: 50%;
     width: 15px;
     height: 2px;
-    background: #b9c4d4;
+    background: #7f1d1d;
 }
 .fila-subviaje > td:first-child .tl-nodo-mini {
     position: absolute;
@@ -604,7 +586,7 @@ tbody tr.fila-ronda { cursor: pointer; }
     height: 9px;
     border-radius: 50%;
     background: #ffffff;
-    border: 2px solid #002d72;
+    border: 2px solid #7f1d1d;
     z-index: 2;
 }
 
@@ -614,7 +596,7 @@ tbody tr.fila-ronda { cursor: pointer; }
     font-size: 10.5px;
     font-weight: 800;
     text-transform: uppercase;
-    padding: 8px 12px;
+    padding: 8px 12px 8px 40px;
     letter-spacing: .5px;
 }
 
@@ -820,15 +802,49 @@ tbody tr.fila-ronda { cursor: pointer; }
 }
 .icono-camion-mapa { font-size: 22px; line-height: 1; text-align: center; filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
 
-.panel-titulo {
-    font-size: 11px;
-    font-weight: 800;
-    color: #002d72;
-    text-transform: uppercase;
+.tendencias-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-bottom: 14px;
+}
+@media (max-width: 1000px) {
+    .tendencias-grid { grid-template-columns: 1fr; }
+}
+
+.panel-seccion {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 16px 18px;
+}
+.panel-seccion-scroll { display: flex; flex-direction: column; max-height: 460px; }
+.panel-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
+
+.panel-titulo-fila {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 8px;
     border-bottom: 2px solid #e2e8f0;
     padding-bottom: 6px;
 }
+.panel-titulo-fila .panel-titulo { margin: 0; border: none; padding: 0; }
+
+.btn-orden {
+    background: white;
+    border: 1px solid #d7dce3;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 10px;
+    font-weight: 800;
+    color: #002d72;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.btn-orden:hover { background: #eef2f9; }
+
+.grafico-wrap { position: relative; height: 380px; }
 
 .ranking-fila {
     display: flex;
