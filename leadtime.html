@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=13">
+    <link rel="stylesheet" href="leadtime.css?v=15">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -64,8 +64,10 @@
 
                 <div class="field">
                     <label class="field-label">Placa</label>
-                    <div class="combo-placa" id="combo-placa">
-                        <input type="text" id="filtro-placa" class="input-ctrl" placeholder="Ej: ABC-123" style="width:180px;" autocomplete="off">
+                    <div class="combo-placa combo-placa-multi" id="combo-placa">
+                        <div class="combo-placa-chips" id="combo-placa-chips">
+                            <input type="text" id="filtro-placa-texto" class="combo-placa-input" placeholder="Buscar placa..." autocomplete="off">
+                        </div>
                         <div class="combo-placa-lista" id="combo-placa-lista"></div>
                     </div>
                 </div>
@@ -81,7 +83,8 @@
                     <label class="field-label">Inicio</label>
                     <div style="display:flex; gap:6px;">
                         <input type="date" id="fecha-inicio" class="input-ctrl">
-                        <input type="time" id="hora-inicio" class="input-ctrl" value="05:00" style="width:96px;">
+                        <select id="hora-inicio-h" class="input-ctrl select-hora"></select>
+                        <select id="hora-inicio-m" class="input-ctrl select-hora"></select>
                     </div>
                 </div>
 
@@ -89,7 +92,8 @@
                     <label class="field-label">Fin</label>
                     <div style="display:flex; gap:6px;">
                         <input type="date" id="fecha-fin" class="input-ctrl">
-                        <input type="time" id="hora-fin" class="input-ctrl" value="05:00" style="width:96px;">
+                        <select id="hora-fin-h" class="input-ctrl select-hora"></select>
+                        <select id="hora-fin-m" class="input-ctrl select-hora"></select>
                     </div>
                 </div>
 
@@ -221,7 +225,7 @@ const HIST_STORAGE_KEY = 'ardepe_leadtime_historico_rutas_v1';
 let geotabApi = null;
 let zonasCD = [];                 // [{id, name, points:[{x,y}]}]
 let dispositivosGlobal = [];      // catalogo de unidades (para combobox de Placa)
-let placaSeleccionadaId = null;
+// placasSeleccionadas (array) reemplaza a la antigua seleccion unica de placa
 let mapaConductoresGlobal = {};   // driverId -> nombre completo
 let promesaConductores = null;
 let promesaZonas = null;
@@ -447,15 +451,9 @@ async function cargarDispositivosGlobal() {
 }
 
 async function obtenerDispositivos() {
-    if (placaSeleccionadaId) {
-        const yaConocido = dispositivosGlobal.find(function (d) { return d.id === placaSeleccionadaId; });
-        if (yaConocido) return [yaConocido];
-    }
-    const textoPlaca = (document.getElementById('filtro-placa') || {}).value;
-    if (textoPlaca && textoPlaca.trim() && dispositivosGlobal.length > 0) {
-        const t = textoPlaca.trim().toUpperCase();
-        const coincidencias = dispositivosGlobal.filter(function (d) { return d.name.toUpperCase().includes(t); });
-        if (coincidencias.length > 0) return coincidencias;
+    if (placasSeleccionadas.length > 0 && dispositivosGlobal.length > 0) {
+        const elegidos = dispositivosGlobal.filter(function (d) { return placasSeleccionadas.indexOf(d.id) !== -1; });
+        if (elegidos.length > 0) return elegidos;
     }
     const res = await geotabApi.call('Get', {
         typeName: 'Device',
@@ -467,53 +465,90 @@ async function obtenerDispositivos() {
 
 // ---------------- Combobox de Placa (igual patron que Horas de Conduccion) ----------------
 
+let placasSeleccionadas = []; // array de ids de dispositivo elegidos en el multi-select de Placa
+
+function dispositivosSegunFlota() {
+    const fFlota = (document.getElementById('filtro-flota') || {}).value || 'TODOS';
+    if (fFlota === 'TODOS') return dispositivosGlobal;
+    const grupoId = fFlota === 'LOCAL' ? GRUPOS.LOCAL : GRUPOS.PROVINCIA;
+    return dispositivosGlobal.filter(function (d) { return (d.grupos || []).includes(grupoId); });
+}
+
+// Si cambia la Flota, se quitan de la seleccion las placas que ya no pertenezcan a ella
+function limpiarPlacasFueraDeFlota() {
+    const validos = dispositivosSegunFlota().map(function (d) { return d.id; });
+    const antes = placasSeleccionadas.length;
+    placasSeleccionadas = placasSeleccionadas.filter(function (id) { return validos.includes(id); });
+    if (placasSeleccionadas.length !== antes) renderizarChipsPlaca();
+}
+
 function configurarComboPlaca() {
-    const input = document.getElementById('filtro-placa');
+    const input = document.getElementById('filtro-placa-texto');
     const lista = document.getElementById('combo-placa-lista');
 
-    function abrirLista(filtroTexto) {
-        renderizarListaPlacas(filtroTexto);
+    function abrirLista() {
+        renderizarListaPlacas(input.value);
         lista.classList.add('open');
     }
 
-    input.addEventListener('focus', function () { abrirLista(input.value); });
-    input.addEventListener('input', function () {
-        placaSeleccionadaId = null;
-        abrirLista(input.value);
-        filtrosCambiaron();
-    });
+    input.addEventListener('focus', abrirLista);
+    input.addEventListener('input', abrirLista);
     document.addEventListener('click', function (e) {
         if (!document.getElementById('combo-placa').contains(e.target)) lista.classList.remove('open');
     });
+
+    document.getElementById('filtro-flota').addEventListener('change', limpiarPlacasFueraDeFlota);
+
+    renderizarChipsPlaca();
 }
 
 function renderizarListaPlacas(filtroTexto) {
     const lista = document.getElementById('combo-placa-lista');
     const t = (filtroTexto || '').toUpperCase().trim();
-    const items = dispositivosGlobal.filter(function (d) { return !t || d.name.toUpperCase().includes(t); }).slice(0, 50);
+    const disponibles = dispositivosSegunFlota();
+    const items = disponibles.filter(function (d) { return !t || d.name.toUpperCase().includes(t); }).slice(0, 60);
 
-    let html = '<div class="combo-placa-item combo-placa-todas" data-id="__TODAS__">TODAS</div>';
     if (items.length === 0) {
-        html += '<div class="combo-placa-empty">Sin coincidencias</div>';
-    } else {
-        html += items.map(function (d) { return '<div class="combo-placa-item" data-id="' + d.id + '">' + esc(d.name) + '</div>'; }).join('');
+        lista.innerHTML = '<div class="combo-placa-empty">Sin coincidencias</div>';
+        return;
     }
-    lista.innerHTML = html;
+    lista.innerHTML = items.map(function (d) {
+        const marcado = placasSeleccionadas.indexOf(d.id) !== -1;
+        return '<div class="combo-placa-item ' + (marcado ? 'marcado' : '') + '" data-id="' + d.id + '">' +
+            '<span class="combo-placa-check">' + (marcado ? '&#10003;' : '') + '</span>' + esc(d.name) + '</div>';
+    }).join('');
 
     Array.prototype.forEach.call(lista.querySelectorAll('.combo-placa-item'), function (el) {
-        el.onclick = function () {
+        el.onclick = function (e) {
+            e.stopPropagation();
             const id = el.getAttribute('data-id');
-            if (id === '__TODAS__') {
-                placaSeleccionadaId = null;
-                document.getElementById('filtro-placa').value = '';
-            } else {
-                const disp = dispositivosGlobal.find(function (d) { return d.id === id; });
-                if (disp) { placaSeleccionadaId = id; document.getElementById('filtro-placa').value = disp.name; }
-            }
-            lista.classList.remove('open');
+            const idx = placasSeleccionadas.indexOf(id);
+            if (idx === -1) placasSeleccionadas.push(id); else placasSeleccionadas.splice(idx, 1);
+            document.getElementById('filtro-placa-texto').value = '';
+            renderizarChipsPlaca();
+            renderizarListaPlacas('');
             filtrosCambiaron();
         };
     });
+}
+
+function quitarPlacaSeleccionada(id) {
+    placasSeleccionadas = placasSeleccionadas.filter(function (pid) { return pid !== id; });
+    renderizarChipsPlaca();
+    filtrosCambiaron();
+}
+
+function renderizarChipsPlaca() {
+    const cont = document.getElementById('combo-placa-chips');
+    const input = document.getElementById('filtro-placa-texto');
+    const chipsHtml = placasSeleccionadas.map(function (id) {
+        const disp = dispositivosGlobal.find(function (d) { return d.id === id; });
+        const nombre = disp ? disp.name : id;
+        return '<span class="chip-placa">' + esc(nombre) + '<span class="chip-placa-x" onclick="event.stopPropagation(); quitarPlacaSeleccionada(\'' + id + '\')">&times;</span></span>';
+    }).join('');
+    // Reinsertamos los chips antes del input (sin destruir el input, para no perder el foco)
+    Array.prototype.forEach.call(cont.querySelectorAll('.chip-placa'), function (el) { el.remove(); });
+    input.insertAdjacentHTML('beforebegin', chipsHtml);
 }
 
 // ---------------- Fechas por defecto ----------------
@@ -538,6 +573,25 @@ function toDateInputStr(d) {
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
+// ---------------- Selector de hora (select de horas + minutos, mas estable que el
+// control nativo del navegador para ajustar con precision) ----------------
+
+function inicializarSelectoresHora() {
+    const PASO_MIN = 5;
+    [['hora-inicio-h', 'hora-inicio-m', '05', '00'], ['hora-fin-h', 'hora-fin-m', '05', '00']].forEach(function (cfg) {
+        const selH = document.getElementById(cfg[0]);
+        const selM = document.getElementById(cfg[1]);
+        selH.innerHTML = Array.from({ length: 24 }, function (_, h) { return '<option value="' + String(h).padStart(2, '0') + '">' + String(h).padStart(2, '0') + ' h</option>'; }).join('');
+        selM.innerHTML = Array.from({ length: 60 / PASO_MIN }, function (_, i) { const m = i * PASO_MIN; return '<option value="' + String(m).padStart(2, '0') + '">' + String(m).padStart(2, '0') + ' min</option>'; }).join('');
+        selH.value = cfg[2];
+        selM.value = cfg[3];
+    });
+}
+
+function leerHora(prefix) {
+    return document.getElementById(prefix + '-h').value + ':' + document.getElementById(prefix + '-m').value;
+}
+
 function construirISO(fechaStr, horaStr) {
     return new Date(fechaStr + 'T' + horaStr + ':00').toISOString();
 }
@@ -549,6 +603,7 @@ geotab.addin.LeadTimeARDEPE = function (api, state) {
         initialize: async function (api, state, callback) {
             geotabApi = api;
             configurarFechas();
+            inicializarSelectoresHora();
             promesaConductores = cargarConductores();
             promesaZonas = cargarZonasCD();
             // cargarDiagRegla(); // diagnostico ya no necesario, bug de zoneType resuelto
@@ -565,10 +620,20 @@ geotab.addin.LeadTimeARDEPE = function (api, state) {
 
 async function consultar() {
     yaConsultado = true;
+
+    // Limpieza total antes de una nueva consulta: nada del resultado anterior debe quedar
+    // mezclado (tabla, grupos desplegados, panel abierto).
+    cerrarPanelViaje();
+    estadoAbiertoPorPlaca = {};
+    rondasData = [];
+    gruposActuales = [];
+    rondasFiltradasActuales = [];
+    document.getElementById('tbody-resumen').innerHTML = '<tr><td colspan="11" class="estado-tabla">Consultando...</td></tr>';
+
     const fechaInicio = document.getElementById('fecha-inicio').value;
-    const horaInicio = document.getElementById('hora-inicio').value;
+    const horaInicio = leerHora('hora-inicio');
     const fechaFin = document.getElementById('fecha-fin').value;
-    const horaFin = document.getElementById('hora-fin').value;
+    const horaFin = leerHora('hora-fin');
     if (!fechaInicio || !fechaFin) { alert('Completa el rango de fechas.'); return; }
 
     const fromDate = construirISO(fechaInicio, horaInicio);
@@ -961,16 +1026,16 @@ function cambiarPestana(nombre) {
     document.getElementById('tab-btn-tendencias').classList.toggle('active', nombre === 'tendencias');
     document.getElementById('vista-comportamiento').style.display = nombre === 'comportamiento' ? 'block' : 'none';
     document.getElementById('vista-tendencias').style.display = nombre === 'tendencias' ? 'block' : 'none';
+    cerrarPanelViaje(); // el panel de un viaje no debe quedar flotando al cambiar de pestana
 }
 
 function filtrarDatos(lista) {
     const fFlota = document.getElementById('filtro-flota').value;
     const fConductor = (document.getElementById('filtro-conductor').value || '').toUpperCase().trim();
-    const fPlaca = (document.getElementById('filtro-placa').value || '').toUpperCase().trim();
 
     return lista.filter(function (r) {
         if (fFlota !== 'TODOS' && r.flota !== fFlota) return false;
-        if (fPlaca && !r.disp.name.toUpperCase().includes(fPlaca)) return false;
+        if (placasSeleccionadas.length > 0 && placasSeleccionadas.indexOf(r.disp.id) === -1) return false;
         if (fConductor) {
             const nombre = (mapaConductoresGlobal[r.driverId] || '').toUpperCase();
             if (!nombre.includes(fConductor)) return false;
@@ -1112,7 +1177,10 @@ function agruparPorPlaca(lista) {
 }
 
 function toggleGrupoPlaca(dispId) {
-    estadoAbiertoPorPlaca[dispId] = !estadoAbiertoPorPlaca[dispId];
+    const yaAbierto = !!estadoAbiertoPorPlaca[dispId];
+    estadoAbiertoPorPlaca = {}; // acordeon: solo una placa desplegada a la vez
+    estadoAbiertoPorPlaca[dispId] = !yaAbierto;
+    cerrarPanelViaje(); // el viaje que se veia ya no corresponde a lo que queda visible
     renderizarComportamiento();
 }
 
@@ -1141,7 +1209,7 @@ function renderizarComportamiento() {
             g.viajes.forEach(function (v, vIdx) {
                 const flatIdx = rondasFiltradasActuales.length;
                 rondasFiltradasActuales.push(v);
-                html += crearFilaSubViaje(v, vIdx + 1, flatIdx);
+                html += crearFilaSubViaje(v, vIdx + 1, flatIdx, vIdx === g.viajes.length - 1);
             });
         }
     });
@@ -1163,22 +1231,25 @@ function crearFilaPlaca(g) {
     const fechaLlegadaTxt = (g.fechaLlegada && !g.guionLlegada) ? formatFechaHora(g.fechaLlegada) : '<span style="color:#9aa4b2;">&#8212;</span>';
     const nViajes = g.viajes.length;
 
-    return '<tr class="fila-placa" onclick="toggleGrupoPlaca(\'' + g.disp.id + '\')">' +
-        '<td><span class="expand-icon ' + (g.abierto ? 'abierto' : '') + '">&#9654;</span><span class="celda-placa">' + esc(g.disp.name) + '</span><div class="ronda-meta">' + nViajes + ' viaje' + (nViajes !== 1 ? 's' : '') + '</div></td>' +
-        '<td>' + esc(g.conductorTexto) + '</td>' +
+    const coloresEstado = { 'badge-terminado': '#16a34a', 'badge-enruta': '#2563eb', 'badge-encd': '#d97706', 'badge-detenido-ruta': '#ea580c', 'badge-historico': '#9aa4b2' };
+    const colorEstado = coloresEstado[g.estadoUltimo.clase] || '#c3ccd6';
+
+    return '<tr class="fila-placa ' + (g.abierto ? 'abierta' : '') + '" style="--color-estado:' + colorEstado + '" onclick="toggleGrupoPlaca(\'' + g.disp.id + '\')">' +
+        '<td><span class="expand-icon ' + (g.abierto ? 'abierto' : '') + '">&#9654;</span><span class="celda-placa">&#128666; ' + esc(g.disp.name) + '</span><div class="ronda-meta">' + nViajes + ' viaje' + (nViajes !== 1 ? 's' : '') + '</div></td>' +
+        '<td>&#128100; ' + esc(g.conductorTexto) + '</td>' +
         '<td>' + esc(g.zonaPartida) + '</td>' +
         '<td style="font-size:11.5px;">' + primeraSalidaTxt + '</td>' +
         '<td>' + zonaLlegadaTxt + '</td>' +
         '<td style="font-size:11.5px;">' + fechaLlegadaTxt + '</td>' +
         '<td style="font-size:12px; max-width:220px;">' + esc(g.cdsVisitadasTexto) + '</td>' +
-        '<td style="font-weight:700;">' + duracionTxt + '</td>' +
-        '<td>' + formatHoras(g.totalConduccionRuta) + '</td>' +
-        '<td>' + formatHoras(g.totalDetenidoRuta) + '</td>' +
+        '<td style="font-weight:800; color:#0f172a;">' + duracionTxt + '</td>' +
+        '<td style="font-weight:700; color:#0369a1;">' + formatHoras(g.totalConduccionRuta) + '</td>' +
+        '<td style="font-weight:700; color:#b45309;">' + formatHoras(g.totalDetenidoRuta) + '</td>' +
         '<td><span class="badge ' + g.estadoUltimo.clase + '">' + esc(g.estadoUltimo.texto) + '</span></td>' +
         '</tr>';
 }
 
-function crearFilaSubViaje(v, numeroViaje, flatIdx) {
+function crearFilaSubViaje(v, numeroViaje, flatIdx, esUltima) {
     const nombre = mapaConductoresGlobal[v.driverId] || (v.driverId || 'SIN CONDUCTOR');
     const primeraParada = v.paradas[0];
     const puntoPartida = primeraParada ? primeraParada.zona : (v.sinSalidaConocida ? 'Desconocido' : 'Planta Pucusana');
@@ -1193,17 +1264,17 @@ function crearFilaSubViaje(v, numeroViaje, flatIdx) {
     const estado = calcularEstado(v);
     const cdsTxt = (v.cdsVisitadas && v.cdsVisitadas.length) ? v.cdsVisitadas.join(', ') : '\u2014';
 
-    return '<tr class="fila-subviaje" id="fila-viaje-' + flatIdx + '" onclick="event.stopPropagation(); abrirPanelViaje(' + flatIdx + ')">' +
-        '<td style="padding-left:34px;" class="celda-placa">' + esc(v.disp.name) + ' <span class="badge-viaje-numero">Viaje ' + numeroViaje + '</span></td>' +
-        '<td>' + esc(nombre) + '</td>' +
+    return '<tr class="fila-subviaje' + (esUltima ? ' fila-subviaje-ultima' : '') + '" id="fila-viaje-' + flatIdx + '" onclick="event.stopPropagation(); abrirPanelViaje(' + flatIdx + ')">' +
+        '<td style="padding-left:34px;" class="celda-placa"><span class="tl-nodo-mini"></span>' + esc(v.disp.name) + ' <span class="badge-viaje-numero">Viaje ' + numeroViaje + '</span></td>' +
+        '<td>&#128100; ' + esc(nombre) + '</td>' +
         '<td>' + esc(puntoPartida) + '</td>' +
         '<td style="font-size:11.5px;">' + fechaSalidaTxt + '</td>' +
         '<td>' + puntoLlegadaTxt + '</td>' +
         '<td style="font-size:11.5px;">' + fechaLlegadaTxt + '</td>' +
         '<td style="font-size:12px; max-width:220px;">' + esc(cdsTxt) + '</td>' +
-        '<td style="font-weight:700;">' + duracionTxt + '</td>' +
-        '<td>' + formatHoras(v.totalConduccionRuta || 0) + '</td>' +
-        '<td>' + formatHoras(v.totalDetenidoRuta || 0) + '</td>' +
+        '<td style="font-weight:800; color:#0f172a;">' + duracionTxt + '</td>' +
+        '<td style="font-weight:700; color:#0369a1;">' + formatHoras(v.totalConduccionRuta || 0) + '</td>' +
+        '<td style="font-weight:700; color:#b45309;">' + formatHoras(v.totalDetenidoRuta || 0) + '</td>' +
         '<td><span class="badge ' + estado.clase + '">' + esc(estado.texto) + '</span></td>' +
         '</tr>';
 }
@@ -1349,7 +1420,11 @@ function construirTimelineVertical(r, desglosePorTramo) {
         if (!esFinReal) {
             const salidaTxt = p.salida ? formatFechaHora(p.salida) : '<span style="color:#9aa4b2;">&#8212;</span>';
             cuerpo += '<div class="tl-horas">Salida: <b>' + salidaTxt + '</b></div>';
-            if (p.salida) cuerpo += '<div class="tl-dur">Detenido aqu\u00ed: ' + formatHoras((p.salida - p.entrada) / 3600000) + '</div>';
+            // La PRIMERA parada (i===0, "Salida") no cuenta su tiempo detenido en ningun
+            // calculo del viaje (ocurre ANTES de la Salida oficial) -- se omite la linea
+            // para no confundir, ya que mostrar un numero que no se usa en ninguna suma
+            // hacia pensar que si deberia sumar.
+            if (p.salida && i > 0) cuerpo += '<div class="tl-dur">Detenido aqu\u00ed: ' + formatHoras((p.salida - p.entrada) / 3600000) + '</div>';
         }
 
         return '<div class="tl-item">' +
@@ -1415,8 +1490,15 @@ function renderizarPanelLateral() {
     if (cerradas.length === 0) {
         contRondas.innerHTML = '<div class="ranking-vacio">Sin viajes terminados a\u00fan.</div>';
     } else {
-        contRondas.innerHTML = cerradas.map(function (r) {
-            return '<div class="ranking-fila"><span class="ranking-nombre">' + esc(r.disp.name) + '</span><span class="ranking-valor">' + formatHoras(r.duracionHoras) + '</span></div>';
+        const maxDur = cerradas[0].duracionHoras || 1;
+        contRondas.innerHTML = cerradas.map(function (r, i) {
+            const pct = Math.max(6, Math.round((r.duracionHoras / maxDur) * 100));
+            return '<div class="ranking-fila">' +
+                '<span class="ranking-pos">' + (i + 1) + '</span>' +
+                '<span class="ranking-nombre">&#128666; ' + esc(r.disp.name) + '</span>' +
+                '<span class="ranking-valor">' + formatHoras(r.duracionHoras) + '</span>' +
+                '<div class="ranking-barra-fondo"><div class="ranking-barra ranking-barra-ambar" style="width:' + pct + '%"></div></div>' +
+                '</div>';
         }).join('');
     }
 }
@@ -1425,8 +1507,15 @@ function pintarRanking(elId, mapaValores, formateador) {
     const cont = document.getElementById(elId);
     const claves = Object.keys(mapaValores).sort(function (a, b) { return mapaValores[b] - mapaValores[a]; }).slice(0, 5);
     if (claves.length === 0) { cont.innerHTML = '<div class="ranking-vacio">Sin datos.</div>'; return; }
-    cont.innerHTML = claves.map(function (k) {
-        return '<div class="ranking-fila"><span class="ranking-nombre" title="' + esc(k) + '">' + esc(k) + '</span><span class="ranking-valor">' + formateador(mapaValores[k]) + '</span></div>';
+    const maximo = mapaValores[claves[0]] || 1;
+    cont.innerHTML = claves.map(function (k, i) {
+        const pct = Math.max(6, Math.round((mapaValores[k] / maximo) * 100));
+        return '<div class="ranking-fila">' +
+            '<span class="ranking-pos">' + (i + 1) + '</span>' +
+            '<span class="ranking-nombre" title="' + esc(k) + '">' + esc(k) + '</span>' +
+            '<span class="ranking-valor">' + formateador(mapaValores[k]) + '</span>' +
+            '<div class="ranking-barra-fondo"><div class="ranking-barra" style="width:' + pct + '%"></div></div>' +
+            '</div>';
     }).join('');
 }
 
@@ -1589,6 +1678,11 @@ async function abrirModalMapaDesdePanel() {
     await abrirModalMapa(panelViajeIdxActual);
 }
 
+const COLOR_RUTA = '#2c6cb0';
+const COLOR_RETORNO = '#d97706';
+const COLOR_PLANTA = '#002d72';
+const COLOR_CD = '#16a34a';
+
 async function abrirModalMapa(rIndex) {
     const r = rondasFiltradasActuales[rIndex];
     if (!r) return;
@@ -1604,55 +1698,89 @@ async function abrirModalMapa(rIndex) {
     mapaLeaflet = L.map('mapa-ronda').setView([-12.05, -77.04], 7);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(mapaLeaflet);
 
-    // Zonas realmente visitadas en este viaje: se dibuja el POLIGONO real (con su
-    // Zonas realmente visitadas en este viaje: se dibuja el POLIGONO real (con su
-    // etiqueta completa "N. Primera parada - Nombre" como en el panel), no un punto.
-    const zonasEnViaje = [];
-    const indicesPorZona = {}; // z.id -> [indices de parada donde aparece]
-    r.paradas.forEach(function (p, i) {
+    const capasParaEncuadre = [];
+
+    // 1) Poligonos de las zonas unicas visitadas (solo el contorno de la geocerca, sin
+    // etiqueta encima -- la etiqueta va en un marcador de punto aparte, ver paso 2).
+    const zonasUnicas = [];
+    r.paradas.forEach(function (p) {
         const zonaCompleta = zonasCD.find(function (z) { return z.name === p.zona; });
-        if (zonaCompleta) {
-            if (zonasEnViaje.indexOf(zonaCompleta) === -1 && zonaCompleta.points && zonaCompleta.points.length >= 3) zonasEnViaje.push(zonaCompleta);
-            if (!indicesPorZona[zonaCompleta.id]) indicesPorZona[zonaCompleta.id] = [];
-            indicesPorZona[zonaCompleta.id].push(i);
+        if (zonaCompleta && zonaCompleta.points && zonaCompleta.points.length >= 3 && zonasUnicas.indexOf(zonaCompleta) === -1) {
+            zonasUnicas.push(zonaCompleta);
         }
     });
-    const capasZonas = [];
-    zonasEnViaje.forEach(function (z) {
-        const color = esPlanta(z.name) ? '#002d72' : '#16a34a';
-        const indices = indicesPorZona[z.id] || [];
-        const etiquetasSecuencia = indices.map(function (i) {
-            const esFinReal = (i === r.paradas.length - 1) && r.cerrada;
-            return etiquetaParada(i, r.paradas.length, esFinReal);
-        }).join(' / ');
-        const etiqueta = etiquetasSecuencia + ' &mdash; ' + esc(z.name);
-        const capa = L.polygon(z.points.map(function (p) { return [p.y, p.x]; }), { color: color, fillColor: color, weight: 2, fillOpacity: 0.28 })
-            .addTo(mapaLeaflet).bindPopup(etiqueta);
-        capa.bindTooltip(etiqueta, { permanent: true, direction: 'center', className: 'mapa-etiqueta-zona' });
-        capasZonas.push(capa);
+    zonasUnicas.forEach(function (z) {
+        const color = esPlanta(z.name) ? COLOR_PLANTA : COLOR_CD;
+        const capa = L.polygon(z.points.map(function (p) { return [p.y, p.x]; }), { color: color, fillColor: color, weight: 2, fillOpacity: 0.18 }).addTo(mapaLeaflet);
+        capasParaEncuadre.push(capa);
     });
 
-    // Ruta real con LogRecord -- se reutiliza el mismo array que ya se calculo al abrir
-    // el panel lateral (conduccion/detenido), evitando pedirlo 2 veces.
+    // 2) Un marcador de PUNTO independiente por cada parada (aunque 2 paradas compartan
+    // la misma zona fisica, como Salida y Retorno en Planta) -- cada una con su propia
+    // etiqueta separada, para que nunca se fusionen ni se superpongan.
+    r.paradas.forEach(function (p, i) {
+        if (p.lat == null || p.lon == null) return;
+        const esUltima = i === r.paradas.length - 1;
+        const esFinReal = esUltima && r.cerrada;
+        const esRetorno = esFinReal;
+        const color = esRetorno ? COLOR_RETORNO : (esPlanta(p.zona) ? COLOR_PLANTA : COLOR_CD);
+        const etiqueta = etiquetaParada(i, r.paradas.length, esFinReal) + ' &mdash; ' + esc(p.zona);
+
+        const marcador = L.circleMarker([p.lat, p.lon], { radius: 7, color: color, fillColor: color, weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
+        marcador.bindTooltip(etiqueta, {
+            permanent: true, direction: 'top', offset: [0, -8],
+            className: esRetorno ? 'mapa-etiqueta-zona mapa-etiqueta-retorno' : 'mapa-etiqueta-zona'
+        });
+        marcador.bindPopup(etiqueta);
+        capasParaEncuadre.push(marcador);
+    });
+
+    // 3) Ruta real con LogRecord -- el tramo final (llegando al Retorno) se dibuja en un
+    // color distinto, para diferenciarlo del resto del recorrido.
     const inicioVentana = r.paradas[0].entrada;
     const finVentana = r.retorno || (r.paradas[r.paradas.length - 1] && r.paradas[r.paradas.length - 1].salida) || new Date();
 
     try {
         const logs = r._logsViaje || await obtenerLogRecordConReintento(r.disp.id, inicioVentana.toISOString(), finVentana.toISOString());
         if (logs.length > 1) {
-            const latlngs = logs.map(function (l) { return [l.latitude, l.longitude]; });
-            const linea = L.polyline(latlngs, { color: '#2c6cb0', weight: 3, opacity: 0.85 }).addTo(mapaLeaflet);
-            mapaLeaflet.fitBounds(linea.getBounds(), { padding: [30, 30] });
-        } else if (capasZonas.length > 0) {
-            const grupo = L.featureGroup(capasZonas);
-            mapaLeaflet.fitBounds(grupo.getBounds(), { padding: [30, 30] });
+            const logsOrdenados = logs.slice().sort(function (a, b) { return new Date(a.dateTime) - new Date(b.dateTime); });
+
+            // Punto de corte: inicio del ultimo tramo (salida de la penultima parada)
+            let corteRetorno = null;
+            if (r.cerrada && r.paradas.length >= 2) {
+                const penultima = r.paradas[r.paradas.length - 2];
+                if (penultima.salida) corteRetorno = penultima.salida.getTime();
+            }
+
+            const tramoPrincipal = corteRetorno ? logsOrdenados.filter(function (l) { return new Date(l.dateTime).getTime() <= corteRetorno; }) : logsOrdenados;
+            const tramoRetorno = corteRetorno ? logsOrdenados.filter(function (l) { return new Date(l.dateTime).getTime() >= corteRetorno; }) : [];
+
+            if (tramoPrincipal.length > 1) {
+                const capa = L.polyline(tramoPrincipal.map(function (l) { return [l.latitude, l.longitude]; }), { color: COLOR_RUTA, weight: 3, opacity: 0.85 }).addTo(mapaLeaflet);
+                capasParaEncuadre.push(capa);
+            }
+            if (tramoRetorno.length > 1) {
+                const capa = L.polyline(tramoRetorno.map(function (l) { return [l.latitude, l.longitude]; }), { color: COLOR_RETORNO, weight: 3, opacity: 0.9 }).addTo(mapaLeaflet);
+                capasParaEncuadre.push(capa);
+            }
+
+            // 4) Si el viaje sigue EN RUTA (en vivo, sin cerrar): icono de camion en la
+            // ultima posicion GPS conocida (no movimiento en vivo, solo el ultimo dato).
+            if (!r.cerrada && r.estadoVivo === 'EN_RUTA') {
+                const ultimoPunto = logsOrdenados[logsOrdenados.length - 1];
+                const iconoCamion = L.divIcon({ html: '\uD83D\uDE9B', className: 'icono-camion-mapa', iconSize: [28, 28], iconAnchor: [14, 14] });
+                const marcadorCamion = L.marker([ultimoPunto.latitude, ultimoPunto.longitude], { icon: iconoCamion }).addTo(mapaLeaflet);
+                marcadorCamion.bindTooltip('\u00daltima posici\u00f3n conocida', { permanent: true, direction: 'top', offset: [0, -12], className: 'mapa-etiqueta-camion' });
+                capasParaEncuadre.push(marcadorCamion);
+            }
         }
     } catch (e) {
         console.error('Error trazando ruta real', e);
-        if (capasZonas.length > 0) {
-            const grupo = L.featureGroup(capasZonas);
-            mapaLeaflet.fitBounds(grupo.getBounds(), { padding: [30, 30] });
-        }
+    }
+
+    if (capasParaEncuadre.length > 0) {
+        const grupo = L.featureGroup(capasParaEncuadre);
+        mapaLeaflet.fitBounds(grupo.getBounds(), { padding: [40, 40] });
     }
 }
 
