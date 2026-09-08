@@ -4,7 +4,7 @@ html, body {
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: #f0f2f5;
+    background: linear-gradient(180deg, #eef1f6 0%, #e9edf3 100%);
     margin: 0;
     padding: 20px;
     box-sizing: border-box;
@@ -166,8 +166,64 @@ body {
 .btn-ghost { background: white; color: #002d72; border: 2px solid #002d72; }
 .btn-ghost:hover { background: #eef2f9; }
 
-/* ---------- Combobox de Placa ---------- */
+/* ---------- Combobox de Placa (multi-seleccion con chips) ---------- */
 .combo-placa { position: relative; }
+
+.combo-placa-multi {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    min-width: 200px;
+    max-width: 260px;
+    padding: 5px 6px;
+    border: 1px solid #d7dce3;
+    border-radius: 8px;
+    background: white;
+}
+.combo-placa-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: center;
+    flex: 1;
+}
+.combo-placa-input {
+    border: none;
+    outline: none;
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 4px 2px;
+    flex: 1;
+    min-width: 70px;
+}
+
+.chip-placa {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #eef2f9;
+    color: #002d72;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 4px 6px 4px 9px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
+.chip-placa-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: #002d72;
+    color: white;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+}
+.chip-placa-x:hover { background: #c0392b; }
 
 .combo-placa-lista {
     position: absolute;
@@ -192,18 +248,36 @@ body {
     color: #1a1a1a;
     cursor: pointer;
     border-bottom: 1px solid #f1f3f5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 .combo-placa-item:last-child { border-bottom: none; }
 .combo-placa-item:hover { background: #eef2f9; }
+.combo-placa-item.marcado { background: #f4f8ff; color: #002d72; }
 
-.combo-placa-todas {
-    color: #002d72;
-    background: #f4f7fa;
-    border-bottom: 2px solid #dde3ec !important;
+.combo-placa-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border: 1.5px solid #c3ccd6;
+    border-radius: 4px;
+    font-size: 10px;
+    color: white;
+    flex-shrink: 0;
 }
-.combo-placa-todas:hover { background: #eef2f9; }
+.combo-placa-item.marcado .combo-placa-check { background: #002d72; border-color: #002d72; }
 
 .combo-placa-empty { padding: 10px 12px; font-size: 11.5px; color: #9aa4b2; font-style: italic; }
+
+/* ---------- Selector de hora (select + select, mas estable que input time nativo) ---------- */
+.select-hora {
+    width: 68px;
+    padding: 8px 6px;
+    font-size: 12px;
+}
 
 /* ---------- Menu de exportar ---------- */
 .combo-exportar { position: relative; }
@@ -343,12 +417,13 @@ tbody tr.fila-ronda { cursor: pointer; }
 /* ---------- Badges de flota / estado ---------- */
 .badge {
     display: inline-block;
-    padding: 3px 9px;
+    padding: 4px 11px;
     border-radius: 20px;
     font-size: 9.5px;
     font-weight: 800;
     text-transform: uppercase;
     white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(0,0,0,.06);
 }
 .badge-local { background: #dbeafe; color: #1e3a8a; }
 .badge-provincia { background: #fef3c7; color: #7a5c00; }
@@ -463,11 +538,75 @@ tbody tr.fila-ronda { cursor: pointer; }
 .fila-resumen:hover { background: #f0f4fa; }
 
 .fila-placa { cursor: pointer; }
+.fila-placa > td { border-top: 7px solid #f7f8fa; }
+.fila-placa > td:first-child { position: relative; }
+.fila-placa > td:first-child::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 7px; bottom: 0;
+    width: 4px;
+    background: var(--color-estado, #c3ccd6);
+    border-radius: 0 3px 3px 0;
+}
 .fila-placa:hover { background: #f0f4fa; }
 .fila-subviaje { cursor: pointer; }
 .fila-subviaje:hover { background: #f8fafc; }
 .fila-subviaje.seleccionada { background: #e6eefa; box-shadow: inset 3px 0 0 #002d72; }
 .fila-subviaje.seleccionada:hover { background: #e0e9f7; }
+
+/* ---------- Linea conectora tipo arbol: une la fila de Placa con sus hijos ---------- */
+.fila-placa.abierta > td:first-child { position: relative; }
+.fila-placa.abierta > td:first-child::after {
+    content: '';
+    position: absolute;
+    left: 14px;
+    top: 100%;
+    width: 2px;
+    height: 10px;
+    background: #002d72;
+    z-index: 1;
+}
+
+.fila-resumen-conductores > td:first-child,
+.fila-subencabezado > td:first-child,
+.fila-subviaje > td:first-child {
+    position: relative;
+}
+.fila-resumen-conductores > td:first-child::before,
+.fila-subencabezado > td:first-child::before,
+.fila-subviaje > td:first-child::before {
+    content: '';
+    position: absolute;
+    left: 14px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #b9c4d4;
+}
+.fila-subviaje-ultima > td:first-child::before {
+    bottom: 50%;
+}
+.fila-subviaje > td:first-child::after {
+    content: '';
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    width: 15px;
+    height: 2px;
+    background: #b9c4d4;
+}
+.fila-subviaje > td:first-child .tl-nodo-mini {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2px solid #002d72;
+    z-index: 2;
+}
 
 .fila-subencabezado td {
     background: #eef2f9;
@@ -481,8 +620,12 @@ tbody tr.fila-ronda { cursor: pointer; }
 
 /* ---------- Panel lateral deslizable: detalle de un viaje ---------- */
 .side-panel-overlay {
-    position: fixed;
-    inset: 0;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    min-height: 100vh;
     background: rgba(10, 16, 32, 0.4);
     z-index: 400;
     opacity: 0;
@@ -492,12 +635,12 @@ tbody tr.fila-ronda { cursor: pointer; }
 .side-panel-overlay.open { opacity: 1; pointer-events: auto; }
 
 .side-panel {
-    position: fixed;
+    position: absolute;
     top: 0;
-    bottom: 0;
     right: -460px;
     width: 430px;
     max-width: 92vw;
+    height: 100vh;
     background: #ffffff;
     box-shadow: -8px 0 30px rgba(0,0,0,.25);
     z-index: 410;
@@ -658,7 +801,7 @@ tbody tr.fila-ronda { cursor: pointer; }
 
 /* ---------- Etiqueta de zona en el mapa (Leaflet tooltip permanente) ---------- */
 .mapa-etiqueta-zona {
-    background: rgba(255,255,255,.92);
+    background: rgba(255,255,255,.95);
     border: none;
     box-shadow: 0 1px 4px rgba(0,0,0,.3);
     font-size: 10.5px;
@@ -666,6 +809,16 @@ tbody tr.fila-ronda { cursor: pointer; }
     color: #002d72;
     padding: 2px 6px;
 }
+.mapa-etiqueta-retorno { color: #d97706; }
+.mapa-etiqueta-camion {
+    background: rgba(217,119,6,.95);
+    color: white;
+    border: none;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 7px;
+}
+.icono-camion-mapa { font-size: 22px; line-height: 1; text-align: center; filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
 
 .panel-titulo {
     font-size: 11px;
@@ -679,15 +832,32 @@ tbody tr.fila-ronda { cursor: pointer; }
 
 .ranking-fila {
     display: flex;
-    justify-content: space-between;
+    flex-wrap: wrap;
     align-items: center;
-    padding: 6px 0;
+    padding: 8px 0;
     border-bottom: 1px solid #eef1f5;
     font-size: 11.5px;
+    gap: 2px 0;
 }
 .ranking-fila:last-child { border-bottom: none; }
-.ranking-nombre { color: #33475b; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 165px; }
+.ranking-pos {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #eef2f9;
+    color: #002d72;
+    font-size: 10px;
+    font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+.ranking-nombre { color: #33475b; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 90px; }
 .ranking-valor { color: #002d72; font-weight: 800; white-space: nowrap; margin-left: 8px; }
+.ranking-barra-fondo { width: 100%; height: 5px; background: #eef1f5; border-radius: 3px; margin-top: 5px; overflow: hidden; }
+.ranking-barra { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #002d72, #2c6cb0); }
+.ranking-barra-ambar { background: linear-gradient(90deg, #b45309, #d97706); }
 
 .ranking-vacio { font-size: 11px; color: #9aa4b2; font-style: italic; }
 
@@ -711,8 +881,12 @@ tbody tr.fila-ronda { cursor: pointer; }
 
 /* ---------- Modales genericos ---------- */
 .modal-overlay-generico {
-    position: fixed;
-    inset: 0;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    min-height: 100vh;
     background: rgba(10, 16, 32, 0.55);
     z-index: 500;
     display: flex;
