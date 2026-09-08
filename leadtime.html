@@ -717,10 +717,10 @@ async function consultar() {
             if (i + BLOQUE_DISPOSITIVOS < dispositivos.length) await sleep(PAUSA_MS);
         }
 
-        actualizarProgreso(dispositivos.length, dispositivos.length, 'Buscando inicio real de viajes incompletos (hasta 72h atr\u00e1s)...');
+        actualizarProgreso(dispositivos.length, dispositivos.length, 'Buscando inicio real de viajes incompletos (hasta 120h atr\u00e1s)...');
         await completarViajesIncompletos(todasLasRondas);
 
-        actualizarProgreso(dispositivos.length, dispositivos.length, 'Buscando retorno real de viajes sin cierre (hasta 72h adelante)...');
+        actualizarProgreso(dispositivos.length, dispositivos.length, 'Buscando retorno real de viajes sin cierre (hasta 120h adelante)...');
         await completarViajesSinRetorno(todasLasRondas, toDate);
 
         actualizarProgreso(dispositivos.length, dispositivos.length, 'Verificando estado en vivo de rondas abiertas...');
@@ -1675,7 +1675,7 @@ document.addEventListener('click', function (e) {
     if (combo && !combo.contains(e.target)) document.getElementById('combo-exportar-lista').classList.remove('open');
 });
 
-// ---------------- Busqueda hacia atras (72h) para viajes con inicio incompleto ----------------
+// ---------------- Busqueda hacia atras (120h) para viajes con inicio incompleto ----------------
 // Solo se dispara para el/los dispositivos puntuales que arrancaron directo en una CD (sin
 // haber visto su salida real de Planta dentro del filtro). Busca hacia atras, unicamente
 // para ESA unidad, hasta encontrar su ultima visita real a Planta Pucusana.
@@ -1732,10 +1732,10 @@ async function completarViajesIncompletos(rondas) {
     }
 }
 
-// ---------------- Busqueda hacia adelante (72h) para viajes sin retorno ----------------
+// ---------------- Busqueda hacia adelante (120h) para viajes sin retorno ----------------
 // Solo aplica cuando el filtro NO llega al momento actual (si llega al presente, se usa el
 // estado en vivo como ya funciona). Busca hacia adelante, encadenando cuantas CDs haga
-// falta, hasta encontrar el retorno real a Planta Pucusana o agotar la ventana/72h.
+// falta, hasta encontrar el retorno real a Planta Pucusana o agotar la ventana/120h.
 
 const BUSQUEDA_ADELANTE_HORAS = 120;
 const MAX_ENCADENAMIENTOS = 15; // limite de seguridad para no iterar sin fin
