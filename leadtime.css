@@ -19,6 +19,22 @@ body {
     margin: auto;
     border-top: 6px solid #002d72;
     position: relative;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 40px); /* 40px = padding vertical del body (20px arriba + 20px abajo) */
+    box-sizing: border-box;
+}
+
+/* Todo lo de arriba (titulo, KPIs, filtros, pestanas) mantiene su tamano natural y NO se
+   encoge -- solo el contenido de la pestana activa (mas abajo) crece y tiene su propio
+   scroll interno, para que la pagina en si nunca necesite scroll. */
+.header, .kpi-row, .sticky-header, .tabs-bar { flex-shrink: 0; }
+
+.vista-tab {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
 }
 
 /* ---------- Header ---------- */
@@ -33,7 +49,7 @@ body {
 }
 
 .logo-header {
-    height: 85px;
+    height: 165px;
     width: auto;
     object-fit: contain;
     flex: 0 0 auto;
@@ -322,8 +338,6 @@ body {
 /* ---------- Tabla ---------- */
 .table-wrap {
     overflow-x: auto;
-    overflow-y: auto;
-    max-height: 72vh;
     border: 1px solid #e2e8f0;
     border-radius: 10px;
 }
@@ -341,6 +355,7 @@ thead th {
     white-space: nowrap;
     position: sticky;
     top: 0;
+    z-index: 20;
 }
 
 tbody td { padding: 10px 12px; border-bottom: 1px solid #f1f3f5; vertical-align: middle; }
@@ -412,6 +427,8 @@ tbody tr.fila-ronda { cursor: pointer; }
     border-radius: 10px;
     margin-left: 4px;
     vertical-align: middle;
+    white-space: nowrap;
+    display: inline-block;
 }
 
 /* ---------- Badges de flota / estado ---------- */
@@ -433,6 +450,15 @@ tbody tr.fila-ronda { cursor: pointer; }
 .badge-enruta { background: #dbeafe; color: #1e3a8a; }
 .badge-detenido-ruta { background: #ffe4d5; color: #9a3b12; }
 .badge-historico { background: #eef2f9; color: #556070; }
+
+/* Mensajes de estado largos (ej. "Ultima posicion conocida...") se acomodan en 2-3
+   lineas dentro de un ancho fijo, en vez de estirar toda la columna. */
+.badge-historico, .badge-detenido-ruta, .badge-encd {
+    white-space: normal;
+    max-width: 230px;
+    line-height: 1.5;
+    text-align: left;
+}
 
 /* ---------- Semaforo de cumplimiento ---------- */
 .semaforo { display: flex; align-items: center; gap: 6px; }
@@ -545,7 +571,7 @@ tbody tr.fila-ronda { cursor: pointer; }
     position: absolute;
     left: 14px;
     top: 100%;
-    width: 2px;
+    width: 3px;
     height: 10px;
     background: #7f1d1d;
     z-index: 1;
@@ -562,7 +588,7 @@ tbody tr.fila-ronda { cursor: pointer; }
     left: 14px;
     top: 0;
     bottom: 0;
-    width: 2px;
+    width: 3px;
     background: #7f1d1d;
 }
 .fila-subviaje-ultima > td:first-child::before {
@@ -574,7 +600,7 @@ tbody tr.fila-ronda { cursor: pointer; }
     left: 14px;
     top: 50%;
     width: 15px;
-    height: 2px;
+    height: 3px;
     background: #7f1d1d;
 }
 .fila-subviaje > td:first-child .tl-nodo-mini {
@@ -589,6 +615,22 @@ tbody tr.fila-ronda { cursor: pointer; }
     border: 2px solid #7f1d1d;
     z-index: 2;
 }
+
+/* ---------- Tarjeta: borde delgado alrededor de TODO el bloque (placa + sus hijos
+   desplegados), para diferenciarlo claramente del siguiente bloque ---------- */
+.fila-placa.abierta > td:first-child { box-shadow: inset 2px 0 0 #7f1d1d, inset 0 2px 0 #7f1d1d; }
+.fila-placa.abierta > td:last-child { box-shadow: inset -2px 0 0 #7f1d1d, inset 0 2px 0 #7f1d1d; }
+.fila-placa.abierta > td:not(:first-child):not(:last-child) { box-shadow: inset 0 2px 0 #7f1d1d; }
+
+.fila-resumen-conductores > td,
+.fila-subencabezado > td {
+    border-left: 2px solid #7f1d1d;
+    border-right: 2px solid #7f1d1d;
+}
+
+.fila-subviaje > td:first-child { border-left: 2px solid #7f1d1d; }
+.fila-subviaje > td:last-child { border-right: 2px solid #7f1d1d; }
+.fila-subviaje-ultima > td { border-bottom: 2px solid #7f1d1d; }
 
 .fila-subencabezado td {
     background: #eef2f9;
@@ -844,7 +886,9 @@ tbody tr.fila-ronda { cursor: pointer; }
 }
 .btn-orden:hover { background: #eef2f9; }
 
-.grafico-wrap { position: relative; height: 380px; }
+.grafico-wrap { position: relative; height: 380px; overflow-x: auto; overflow-y: hidden; }
+.grafico-inner { height: 380px; min-width: 100%; }
+.grafico-inner canvas { height: 380px !important; }
 
 .ranking-fila {
     display: flex;
