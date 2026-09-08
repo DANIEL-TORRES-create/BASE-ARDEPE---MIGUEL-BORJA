@@ -7,10 +7,11 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=16">
+    <link rel="stylesheet" href="leadtime.css?v=18">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -151,14 +152,32 @@
 
     <!-- PESTANA 2: Tiempo en Zonas y Tendencias -->
     <div id="vista-tendencias" class="vista-tab" style="display:none;">
-        <div class="panel-lateral" id="panel-lateral">
-            <div class="panel-seccion">
-                <div class="panel-titulo">CDs con m&aacute;s tiempo de espera</div>
-                <div id="ranking-cds"></div>
+        <div class="tendencias-grid">
+            <div class="panel-seccion panel-seccion-scroll">
+                <div class="panel-titulo-fila">
+                    <span class="panel-titulo">CDs con m&aacute;s tiempo de espera</span>
+                    <button class="btn-orden" onclick="invertirOrden('cds')">&#8645; Invertir orden</button>
+                </div>
+                <div id="ranking-cds" class="panel-scroll"></div>
+            </div>
+            <div class="panel-seccion panel-seccion-scroll">
+                <div class="panel-titulo-fila">
+                    <span class="panel-titulo">Viajes m&aacute;s largos</span>
+                    <button class="btn-orden" onclick="invertirOrden('rondas')">&#8645; Invertir orden</button>
+                </div>
+                <div id="ranking-rondas" class="panel-scroll"></div>
             </div>
             <div class="panel-seccion">
-                <div class="panel-titulo">Viajes m&aacute;s largos</div>
-                <div id="ranking-rondas"></div>
+                <div class="panel-titulo">N&uacute;mero de visitas por CD</div>
+                <div class="grafico-wrap"><canvas id="grafico-visitas-cd"></canvas></div>
+            </div>
+            <div class="panel-seccion">
+                <div class="panel-titulo">Placas con m&aacute;s viajes</div>
+                <div class="grafico-wrap"><canvas id="grafico-placas-viajes"></canvas></div>
+            </div>
+            <div class="panel-seccion panel-seccion-scroll">
+                <div class="panel-titulo">Ruta m&aacute;s frecuente</div>
+                <div id="ranking-rutas" class="panel-scroll"></div>
             </div>
         </div>
     </div>
@@ -307,6 +326,26 @@ function puntoEnPoligono(lat, lon, points) {
 }
 
 const RADIO_ZONA_METROS = 200; // fallback: si el punto no cae dentro del poligono exacto, se acepta la zona mas cercana por distancia AL BORDE (no al centro) si esta a menos de esto
+
+// Centro geometrico de un poligono (promedio de sus vertices) -- se usa para poner los
+// marcadores del mapa mas al medio de la zona, en vez de en el punto GPS exacto del
+// evento (que suele caer en el borde/portón de entrada o salida).
+function calcularCentroidePoligono(points) {
+    if (!points || points.length === 0) return null;
+    let sumaLat = 0, sumaLon = 0;
+    points.forEach(function (p) { sumaLat += p.y; sumaLon += p.x; });
+    return { lat: sumaLat / points.length, lon: sumaLon / points.length };
+}
+
+// Cuando 2+ paradas caen en la misma zona (ej. Salida y Retorno, ambas en Planta), cada
+// ocurrencia se separa un poco del centro (en espiral), para que no se superpongan pero
+// se mantengan dentro de la geocerca.
+function desplazarPunto(lat, lon, indiceOcurrencia) {
+    if (indiceOcurrencia === 0) return { lat: lat, lon: lon };
+    const angulo = indiceOcurrencia * 2.4;
+    const radio = 0.00022 * indiceOcurrencia;
+    return { lat: lat + radio * Math.cos(angulo), lon: lon + radio * Math.sin(angulo) };
+}
 
 // Distancia de un punto a un segmento de recta, en un plano local (metros), usando
 // proyeccion punto-a-segmento estandar.
@@ -971,6 +1010,15 @@ async function resolverEstadosEnVivo(rondas, toDate) {
                 r.duracionEstadoVivo = timeSpanAHoras(info.currentStateDuration);
             }
         }
+
+        // Si el GPS en vivo confirma que la unidad SIGUE dentro de la misma zona de su
+        // ultima parada, el "Salida" calculado (entrada+duracion de la regla) no es
+        // confiable todavia -- la regla puede seguir sumando duracion mientras el evento
+        // sigue abierto. Se marca para que el panel no la muestre ni la cuente.
+        const ultimaParada = r.paradas[r.paradas.length - 1];
+        if (r.estadoVivo === 'EN_CD' && ultimaParada && ultimaParada.zona === r.cdActualVivo) {
+            ultimaParada.salidaNoConfirmada = true;
+        }
     });
 }
 
@@ -1008,11 +1056,12 @@ function calcularEstado(r) {
         return { clase: 'badge-detenido-ruta', texto: 'Detenido en ruta' + extra };
     }
     if (r.corteHistorico) {
-        const horaCorte = r.corteHistorico.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
-        const ultimaCD = r.cds.length ? r.cds[r.cds.length - 1].zona : null;
-        return ultimaCD
-            ? { clase: 'badge-historico', texto: 'En ' + ultimaCD + ' (seg\u00fan corte del filtro, ' + horaCorte + ')' }
-            : { clase: 'badge-historico', texto: 'Sin retorno al corte (' + horaCorte + ')' };
+        const ultimaCD = r.cds.length ? r.cds[r.cds.length - 1] : null;
+        if (ultimaCD) {
+            const horaTxt = ultimaCD.entrada.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+            return { clase: 'badge-historico', texto: '\u00daltima posici\u00f3n conocida: ' + ultimaCD.zona + ' (desde las ' + horaTxt + ' \u2014 sin confirmaci\u00f3n de salida)' };
+        }
+        return { clase: 'badge-historico', texto: 'Sin retorno registrado' };
     }
     return { clase: 'badge-historico', texto: 'Desconocido' };
 }
@@ -1095,8 +1144,11 @@ function obtenerInfoLlegada(viaje) {
     if (viaje.corteHistorico) {
         const ultimaCD = viaje.cds.length ? viaje.cds[viaje.cds.length - 1] : null;
         if (ultimaCD) {
-            const dur = inicioParaCalculo ? (ultimaCD.entrada - inicioParaCalculo) / 3600000 : null;
-            return { zona: ultimaCD.zona, fecha: ultimaCD.entrada, duracionHoras: dur, guion: false };
+            // No se puede confirmar si ya salio de esa CD (dato historico, sin GPS en
+            // vivo para verificar) -- se muestra la zona y su hora de ENTRADA (el unico
+            // dato confirmado), pero SIN duracion (no se puede calcular con certeza, y
+            // por lo tanto no debe sumarse en ningun total).
+            return { zona: ultimaCD.zona, fecha: ultimaCD.entrada, duracionHoras: null, guion: false, sinConfirmacion: true };
         }
         return { zona: null, fecha: null, duracionHoras: null, guion: true };
     }
@@ -1143,7 +1195,22 @@ function agruparPorPlaca(lista) {
         // Duracion de Ruta de la Placa = suma simple de la duracion de cada viaje (mismo
         // criterio que Conduccion/Detenido) -- NO "primera salida a ultima llegada", para
         // no incluir el tiempo parqueado en Planta ENTRE viajes (eso no es parte de ningun viaje).
-        g.duracionHoras = g.viajes.reduce(function (s, v) { return s + (v.cerrada ? (v.duracionHoras || 0) : 0); }, 0);
+        // Duracion de Ruta de la Placa: suma de los viajes cerrados + el ultimo si sigue
+        // abierto pero YA sabemos cuanto lleva (En CD, o dato historico conocido). Si el
+        // ultimo esta "En Ruta" (sin zona conocida todavia), el total completo queda en
+        // guion -- no tiene sentido sumar un numero parcial que se veria como definitivo.
+        if (g.guionLlegada) {
+            g.duracionHoras = null;
+        } else {
+            g.duracionHoras = g.viajes.reduce(function (s, v, idx) {
+                if (v.cerrada) return s + (v.duracionHoras || 0);
+                if (idx === g.viajes.length - 1) {
+                    const infoUlt = obtenerInfoLlegada(v);
+                    if (!infoUlt.guion && infoUlt.duracionHoras != null) return s + infoUlt.duracionHoras;
+                }
+                return s;
+            }, 0);
+        }
 
         // Totales de conduccion/detenido: suma de TODOS los viajes de la placa
         g.totalConduccionRuta = g.viajes.reduce(function (s, v) { return s + (v.totalConduccionRuta || 0); }, 0);
@@ -1417,7 +1484,7 @@ function construirTimelineVertical(r, desglosePorTramo) {
             tramoHtml +
             '<div class="tl-horas">Entrada: <b>' + formatFechaHora(p.entrada) + '</b></div>';
 
-        if (!esFinReal) {
+        if (!esFinReal && !p.salidaNoConfirmada) {
             const salidaTxt = p.salida ? formatFechaHora(p.salida) : '<span style="color:#9aa4b2;">&#8212;</span>';
             cuerpo += '<div class="tl-horas">Salida: <b>' + salidaTxt + '</b></div>';
             // La PRIMERA parada (i===0, "Salida") no cuenta su tiempo detenido en ningun
@@ -1425,6 +1492,8 @@ function construirTimelineVertical(r, desglosePorTramo) {
             // para no confundir, ya que mostrar un numero que no se usa en ninguna suma
             // hacia pensar que si deberia sumar.
             if (p.salida && i > 0) cuerpo += '<div class="tl-dur">Detenido aqu\u00ed: ' + formatHoras((p.salida - p.entrada) / 3600000) + '</div>';
+        } else if (p.salidaNoConfirmada) {
+            cuerpo += '<div class="tl-horas" style="color:#d97706;"><b>Sigue aqu\u00ed</b> (confirmado por GPS en vivo)</div>';
         }
 
         return '<div class="tl-item">' +
@@ -1467,30 +1536,46 @@ function actualizarKPIs() {
 
 // ---------------- Panel lateral de rankings ----------------
 
+let ordenInvertido = { cds: false, rondas: false };
+let graficoVisitasCD = null;
+let graficoPlacasViajes = null;
+
+function invertirOrden(cual) {
+    ordenInvertido[cual] = !ordenInvertido[cual];
+    renderizarPanelLateral();
+}
+
 function renderizarPanelLateral() {
     const lista = filtrarDatos(rondasData);
     if (lista.length === 0) {
         document.getElementById('ranking-cds').innerHTML = '<div class="ranking-vacio">Sin datos.</div>';
         document.getElementById('ranking-rondas').innerHTML = '<div class="ranking-vacio">Sin datos.</div>';
+        document.getElementById('ranking-rutas').innerHTML = '<div class="ranking-vacio">Sin datos.</div>';
+        if (graficoVisitasCD) { graficoVisitasCD.destroy(); graficoVisitasCD = null; }
+        if (graficoPlacasViajes) { graficoPlacasViajes.destroy(); graficoPlacasViajes = null; }
         return;
     }
 
+    // ---- CDs con mas tiempo de espera (suma de todas las visitas) ----
     const mapaCD = {};
+    const visitasPorCD = {};
     lista.forEach(function (r) {
         r.cds.forEach(function (c) {
+            visitasPorCD[c.zona] = (visitasPorCD[c.zona] || 0) + 1;
             if (!c.salida) return;
             mapaCD[c.zona] = (mapaCD[c.zona] || 0) + (c.salida - c.entrada) / 3600000;
         });
     });
-    pintarRanking('ranking-cds', mapaCD, formatHoras);
+    pintarRanking('ranking-cds', mapaCD, formatHoras, ordenInvertido.cds);
 
-    const cerradas = lista.filter(function (r) { return r.cerrada; })
-        .slice().sort(function (a, b) { return b.duracionHoras - a.duracionHoras; }).slice(0, 5);
+    // ---- Viajes mas largos (todos, no solo 5) ----
+    const cerradas = lista.filter(function (r) { return r.cerrada; }).slice()
+        .sort(function (a, b) { return ordenInvertido.rondas ? a.duracionHoras - b.duracionHoras : b.duracionHoras - a.duracionHoras; });
     const contRondas = document.getElementById('ranking-rondas');
     if (cerradas.length === 0) {
         contRondas.innerHTML = '<div class="ranking-vacio">Sin viajes terminados a\u00fan.</div>';
     } else {
-        const maxDur = cerradas[0].duracionHoras || 1;
+        const maxDur = Math.max.apply(null, cerradas.map(function (r) { return r.duracionHoras; })) || 1;
         contRondas.innerHTML = cerradas.map(function (r, i) {
             const pct = Math.max(6, Math.round((r.duracionHoras / maxDur) * 100));
             return '<div class="ranking-fila">' +
@@ -1501,13 +1586,50 @@ function renderizarPanelLateral() {
                 '</div>';
         }).join('');
     }
+
+    // ---- Grafico de lineas: numero de visitas por CD ----
+    const cdsOrdenadosPorVisitas = Object.keys(visitasPorCD).sort(function (a, b) { return visitasPorCD[b] - visitasPorCD[a]; });
+    if (graficoVisitasCD) graficoVisitasCD.destroy();
+    graficoVisitasCD = new Chart(document.getElementById('grafico-visitas-cd'), {
+        type: 'line',
+        data: {
+            labels: cdsOrdenadosPorVisitas,
+            datasets: [{
+                label: 'Visitas', data: cdsOrdenadosPorVisitas.map(function (k) { return visitasPorCD[k]; }),
+                borderColor: '#002d72', backgroundColor: 'rgba(0,45,114,0.12)', fill: true, tension: 0.25, pointRadius: 4, pointBackgroundColor: '#002d72'
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+    });
+
+    // ---- Grafico de barras verticales: placas con mas viajes ----
+    const grupos = agruparPorPlaca(lista);
+    const placasOrdenadas = grupos.slice().sort(function (a, b) { return b.viajes.length - a.viajes.length; }).slice(0, 15);
+    if (graficoPlacasViajes) graficoPlacasViajes.destroy();
+    graficoPlacasViajes = new Chart(document.getElementById('grafico-placas-viajes'), {
+        type: 'bar',
+        data: {
+            labels: placasOrdenadas.map(function (g) { return g.disp.name; }),
+            datasets: [{ label: 'Viajes', data: placasOrdenadas.map(function (g) { return g.viajes.length; }), backgroundColor: '#d97706', borderRadius: 4 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+    });
+
+    // ---- Ruta mas frecuente (firma de la secuencia de CDs) ----
+    const mapaRutas = {};
+    lista.forEach(function (r) {
+        const firma = r.firma || (r.cds.length ? r.cds.map(function (c) { return c.zona; }).join(' \u2192 ') : 'Directo (sin CDs)');
+        mapaRutas[firma] = (mapaRutas[firma] || 0) + 1;
+    });
+    pintarRanking('ranking-rutas', mapaRutas, function (v) { return v + ' viaje' + (v !== 1 ? 's' : ''); }, false);
 }
 
-function pintarRanking(elId, mapaValores, formateador) {
+function pintarRanking(elId, mapaValores, formateador, invertido) {
     const cont = document.getElementById(elId);
-    const claves = Object.keys(mapaValores).sort(function (a, b) { return mapaValores[b] - mapaValores[a]; }).slice(0, 5);
+    let claves = Object.keys(mapaValores).sort(function (a, b) { return mapaValores[b] - mapaValores[a]; });
+    if (invertido) claves = claves.reverse();
     if (claves.length === 0) { cont.innerHTML = '<div class="ranking-vacio">Sin datos.</div>'; return; }
-    const maximo = mapaValores[claves[0]] || 1;
+    const maximo = Math.max.apply(null, claves.map(function (k) { return mapaValores[k]; })) || 1;
     cont.innerHTML = claves.map(function (k, i) {
         const pct = Math.max(6, Math.round((mapaValores[k] / maximo) * 100));
         return '<div class="ranking-fila">' +
@@ -1715,18 +1837,28 @@ async function abrirModalMapa(rIndex) {
         capasParaEncuadre.push(capa);
     });
 
-    // 2) Un marcador de PUNTO independiente por cada parada (aunque 2 paradas compartan
-    // la misma zona fisica, como Salida y Retorno en Planta) -- cada una con su propia
-    // etiqueta separada, para que nunca se fusionen ni se superpongan.
+    // 2) Un marcador de PUNTO independiente por cada parada, centrado en la zona (no en
+    // el GPS exacto del evento, que suele caer en el borde). Si 2+ paradas comparten la
+    // misma zona (ej. Salida y Retorno en Planta), se separan un poco entre si.
+    const ocurrenciasPorZona = {};
     r.paradas.forEach(function (p, i) {
-        if (p.lat == null || p.lon == null) return;
+        const zonaCompleta = zonasCD.find(function (z) { return z.name === p.zona; });
+        const centro = zonaCompleta ? calcularCentroidePoligono(zonaCompleta.points) : null;
+        const base = centro || (p.lat != null ? { lat: p.lat, lon: p.lon } : null);
+        if (!base) return;
+
+        const claveZona = zonaCompleta ? zonaCompleta.id : p.zona;
+        const ocurrencia = ocurrenciasPorZona[claveZona] || 0;
+        ocurrenciasPorZona[claveZona] = ocurrencia + 1;
+        const punto = desplazarPunto(base.lat, base.lon, ocurrencia);
+
         const esUltima = i === r.paradas.length - 1;
         const esFinReal = esUltima && r.cerrada;
         const esRetorno = esFinReal;
         const color = esRetorno ? COLOR_RETORNO : (esPlanta(p.zona) ? COLOR_PLANTA : COLOR_CD);
         const etiqueta = etiquetaParada(i, r.paradas.length, esFinReal) + ' &mdash; ' + esc(p.zona);
 
-        const marcador = L.circleMarker([p.lat, p.lon], { radius: 7, color: color, fillColor: color, weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
+        const marcador = L.circleMarker([punto.lat, punto.lon], { radius: 7, color: color, fillColor: color, weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
         marcador.bindTooltip(etiqueta, {
             permanent: true, direction: 'top', offset: [0, -8],
             className: esRetorno ? 'mapa-etiqueta-zona mapa-etiqueta-retorno' : 'mapa-etiqueta-zona'
@@ -1736,12 +1868,19 @@ async function abrirModalMapa(rIndex) {
     });
 
     // 3) Ruta real con LogRecord -- el tramo final (llegando al Retorno) se dibuja en un
-    // color distinto, para diferenciarlo del resto del recorrido.
+    // color distinto. Si el viaje sigue EN RUTA o DETENIDO EN RUTA (en vivo), se pide el
+    // dato SIN cache, para traer la posicion mas fresca posible (no la de la ultima
+    // consulta general). Si esta cerrado o EN CD, se reutiliza el cache normal.
+    const esEnMovimientoVivo = !r.cerrada && (r.estadoVivo === 'EN_RUTA' || r.estadoVivo === 'DETENIDO_EN_RUTA');
     const inicioVentana = r.paradas[0].entrada;
-    const finVentana = r.retorno || (r.paradas[r.paradas.length - 1] && r.paradas[r.paradas.length - 1].salida) || new Date();
+    const finVentana = esEnMovimientoVivo ? new Date() : (r.retorno || (r.paradas[r.paradas.length - 1] && r.paradas[r.paradas.length - 1].salida) || new Date());
 
     try {
-        const logs = r._logsViaje || await obtenerLogRecordConReintento(r.disp.id, inicioVentana.toISOString(), finVentana.toISOString());
+        const logs = (esEnMovimientoVivo || !r._logsViaje)
+            ? await obtenerLogRecordConReintento(r.disp.id, inicioVentana.toISOString(), finVentana.toISOString())
+            : r._logsViaje;
+        if (esEnMovimientoVivo) r._logsViaje = logs; // refresca el cache con el dato fresco
+
         if (logs.length > 1) {
             const logsOrdenados = logs.slice().sort(function (a, b) { return new Date(a.dateTime) - new Date(b.dateTime); });
 
@@ -1764,9 +1903,9 @@ async function abrirModalMapa(rIndex) {
                 capasParaEncuadre.push(capa);
             }
 
-            // 4) Si el viaje sigue EN RUTA (en vivo, sin cerrar): icono de camion en la
-            // ultima posicion GPS conocida (no movimiento en vivo, solo el ultimo dato).
-            if (!r.cerrada && r.estadoVivo === 'EN_RUTA') {
+            // 4) Si el viaje sigue EN RUTA o DETENIDO EN RUTA (en vivo): icono de camion
+            // en la ultima posicion GPS conocida (no movimiento en vivo, solo el ultimo dato).
+            if (esEnMovimientoVivo) {
                 const ultimoPunto = logsOrdenados[logsOrdenados.length - 1];
                 const iconoCamion = L.divIcon({ html: '\uD83D\uDE9B', className: 'icono-camion-mapa', iconSize: [28, 28], iconAnchor: [14, 14] });
                 const marcadorCamion = L.marker([ultimoPunto.latitude, ultimoPunto.longitude], { icon: iconoCamion }).addTo(mapaLeaflet);
@@ -1790,57 +1929,20 @@ function cerrarModalMapa() {
 }
 
 
-function exportarExcel(modo) {
-    document.getElementById('combo-exportar-lista').classList.remove('open');
-    const lista = filtrarDatos(rondasData);
-    if (lista.length === 0) { alert('No hay datos para exportar. Consulta primero.'); return; }
-
-    const wb = new ExcelJS.Workbook();
-    wb.creator = 'ARDEPE';
-    const nombreHoja = modo === 'resumen' ? 'Resumen' : 'Detalle';
-    const ws = wb.addWorksheet(nombreHoja, { views: [{ state: 'frozen', ySplit: 1 }] });
-
-    let encabezados, filas, colsHoras;
-
-    if (modo === 'resumen') {
-        encabezados = ['Conductor', 'Placa', 'Flota', 'Ruta', 'Salida Planta', 'Retorno Planta', 'Duraci\u00f3n Total', 'Estado'];
-        colsHoras = [7];
-        filas = lista.map(function (r) {
-            const nombre = mapaConductoresGlobal[r.driverId] || (r.driverId || 'SIN CONDUCTOR');
-            const ruta = r.cds.length ? r.cds.map(function (c) { return c.zona; }).join(' -> ') : (r.sinSalidaConocida ? 'Viaje incompleto' : 'Directo');
-            const estado = calcularEstado(r).texto;
-            return [
-                nombre, r.disp.name, r.flota, ruta,
-                r.salida ? formatFechaHora(r.salida) : '',
-                r.retorno ? formatFechaHora(r.retorno) : '',
-                r.cerrada ? (r.duracionHoras / 24) : null,
-                estado
-            ];
-        });
-    } else {
-        encabezados = ['Placa', 'Conductor', 'Fecha y hora de salida', 'Punto de salida', 'Fecha y hora de llegada', 'Punto de llegada', 'Duraci\u00f3n'];
-        colsHoras = [7];
-        const tramos = construirTramosPlanos(lista);
-        filas = tramos.map(function (t) {
-            const nombre = mapaConductoresGlobal[t.driverId] || (t.driverId || 'SIN CONDUCTOR');
-            return [t.disp.name, nombre, formatFechaHora(t.salida), t.puntoSalida, formatFechaHora(t.llegada), t.puntoLlegada, t.duracionHoras / 24];
-        });
-    }
-
-    const anchos = modo === 'resumen' ? [26, 16, 12, 34, 20, 20, 14, 22] : [16, 26, 20, 22, 20, 22, 14];
+function estilarHojaExcel(ws, encabezados, filas, colsHoras, anchos) {
     anchos.forEach(function (w, i) { ws.getColumn(i + 1).width = w; });
 
     const headerRow = ws.addRow(encabezados);
     headerRow.eachCell(function (cell) {
         cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF002D72' } };
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
         cell.border = {
             top: { style: 'thin', color: { argb: 'FF001A44' } }, bottom: { style: 'thin', color: { argb: 'FF001A44' } },
             left: { style: 'thin', color: { argb: 'FF001A44' } }, right: { style: 'thin', color: { argb: 'FF001A44' } }
         };
     });
-    headerRow.height = 20;
+    headerRow.height = 28;
     colsHoras.forEach(function (col) { ws.getColumn(col).numFmt = '[h]:mm'; });
 
     filas.forEach(function (fila, ri) {
@@ -1861,6 +1963,104 @@ function exportarExcel(modo) {
 
     if (filas.length > 0) {
         ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1 + filas.length, column: encabezados.length } };
+    }
+}
+
+function exportarExcel(modo) {
+    document.getElementById('combo-exportar-lista').classList.remove('open');
+    const lista = filtrarDatos(rondasData);
+    if (lista.length === 0) { alert('No hay datos para exportar. Consulta primero.'); return; }
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'ARDEPE';
+
+    if (modo === 'resumen') {
+        // 1 fila por PLACA (agrupado), igual que el Nivel 1 de la pantalla.
+        const grupos = agruparPorPlaca(lista);
+        const encabezados = ['Placa', 'Conductor', 'Flota', 'Punto de Partida', 'Fecha de Salida', 'Punto de Llegada', 'Fecha de Llegada', 'CDs Visitados', 'Duraci\u00f3n de Ruta', 'Conducci\u00f3n', 'Detenido', 'Estado'];
+        const filas = grupos.map(function (g) {
+            return [
+                g.disp.name, g.conductorTexto, g.flota, g.zonaPartida,
+                g.primeraSalida ? formatFechaHora(g.primeraSalida) : '',
+                (g.zonaLlegada && !g.guionLlegada) ? g.zonaLlegada : (g.zonaLlegada || ''),
+                (g.fechaLlegada && !g.guionLlegada) ? formatFechaHora(g.fechaLlegada) : '',
+                g.cdsVisitadasTexto,
+                (g.duracionHoras != null) ? (g.duracionHoras / 24) : null,
+                g.totalConduccionRuta / 24,
+                g.totalDetenidoRuta / 24,
+                g.estadoUltimo.texto
+            ];
+        });
+        const ws = wb.addWorksheet('Resumen', { views: [{ state: 'frozen', ySplit: 1 }] });
+        estilarHojaExcel(ws, encabezados, filas, [9, 10, 11], [14, 26, 12, 20, 18, 20, 18, 34, 14, 12, 12, 30]);
+
+    } else {
+        // Detalle: 1 fila por VIAJE (no por tramo), separado en hojas segun cuantas CDs
+        // tuvo cada viaje, para que las columnas de cada hoja calcen exactas sin celdas vacias.
+        const grupos = agruparPorPlaca(lista);
+        const todosLosViajes = [];
+        grupos.forEach(function (g) {
+            g.viajes.forEach(function (v, idx) { todosLosViajes.push({ viaje: v, numero: idx + 1 }); });
+        });
+
+        const porCantidadCD = {};
+        todosLosViajes.forEach(function (item) {
+            const n = item.viaje.cds.length;
+            if (!porCantidadCD[n]) porCantidadCD[n] = [];
+            porCantidadCD[n].push(item);
+        });
+
+        const cantidades = Object.keys(porCantidadCD).map(Number).sort(function (a, b) { return a - b; });
+        if (cantidades.length === 0) { alert('No hay viajes para exportar.'); return; }
+
+        cantidades.forEach(function (n) {
+            const items = porCantidadCD[n];
+            const nombreHoja = n === 0 ? 'Detalle - Sin CD' : 'Detalle - ' + n + ' CD' + (n > 1 ? 's' : '');
+            const ws = wb.addWorksheet(nombreHoja, { views: [{ state: 'frozen', ySplit: 1 }] });
+
+            const encabezados = ['Placa', 'Viaje N\u00b0', 'Conductor', 'Punto de Partida', 'Fecha de Salida'];
+            const colsHorasIdx = [];
+            const ordinales = ['Primera', 'Segunda', 'Tercera', 'Cuarta', 'Quinta', 'Sexta', 'S\u00e9ptima', 'Octava'];
+            for (let i = 0; i < n; i++) {
+                const nombreParada = ordinales[i] || (i + 1) + 'a';
+                encabezados.push(nombreParada + ' Parada', 'Entrada', 'Salida');
+            }
+            encabezados.push('Punto de Retorno', 'Fecha de Llegada', 'Duraci\u00f3n de Ruta', 'Conducci\u00f3n', 'Detenido', 'Estado');
+
+            // Indices (1-based) de las columnas de horas, para formato [h]:mm
+            const colDuracion = 5 + n * 3 + 3;
+            colsHorasIdx.push(colDuracion, colDuracion + 1, colDuracion + 2);
+
+            const filas = items.map(function (item) {
+                const v = item.viaje;
+                const nombre = mapaConductoresGlobal[v.driverId] || (v.driverId || 'SIN CONDUCTOR');
+                const primeraParada = v.paradas[0];
+                const puntoPartida = primeraParada ? primeraParada.zona : (v.sinSalidaConocida ? 'Desconocido' : 'Planta Pucusana');
+                const fechaSalida = v.salida ? formatFechaHora(v.salida) : (primeraParada ? formatFechaHora(primeraParada.entrada) : '');
+
+                const fila = [v.disp.name, 'Viaje ' + item.numero, nombre, puntoPartida, fechaSalida];
+                v.cds.forEach(function (c) {
+                    fila.push(c.zona, formatFechaHora(c.entrada), c.salida ? formatFechaHora(c.salida) : '');
+                });
+
+                const info = obtenerInfoLlegada(v);
+                fila.push(
+                    info.zona || '',
+                    (info.fecha && !info.guion) ? formatFechaHora(info.fecha) : '',
+                    (info.duracionHoras != null) ? (info.duracionHoras / 24) : null,
+                    (v.totalConduccionRuta || 0) / 24,
+                    (v.totalDetenidoRuta || 0) / 24,
+                    calcularEstado(v).texto
+                );
+                return fila;
+            });
+
+            const anchos = [14, 11, 24];
+            for (let i = 0; i < n; i++) anchos.push(18, 18, 18);
+            anchos.push(18, 18, 14, 12, 12, 30);
+
+            estilarHojaExcel(ws, encabezados, filas, colsHorasIdx, anchos);
+        });
     }
 
     const fechaArchivo = new Date().toISOString().slice(0, 10);
