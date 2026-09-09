@@ -14,7 +14,7 @@ body {
     background: white;
     border-radius: 14px;
     box-shadow: 0 10px 40px -8px rgba(0,45,114,0.18), 0 2px 8px rgba(0,0,0,0.06);
-    padding: 8px 22px 18px;
+    padding: 4px 22px 14px;
     max-width: 1780px;
     margin: auto;
     border-top: 6px solid #002d72;
@@ -42,7 +42,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
     flex-wrap: wrap;
     gap: 10px;
     padding-top: 0;
