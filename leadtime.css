@@ -864,6 +864,7 @@ tbody tr.fila-ronda { cursor: pointer; }
     flex-direction: column;
     height: 440px;
     box-sizing: border-box;
+    min-width: 0; /* evita que el grid se ensanche por el contenido ancho del grafico */
 }
 .panel-scroll { flex: 1; overflow-y: auto; padding-right: 4px; min-height: 0; }
 
@@ -909,7 +910,7 @@ tbody tr.fila-ronda { cursor: pointer; }
 }
 .btn-orden:hover { background: #eef2f9; }
 
-.grafico-wrap { position: relative; flex: 1; min-height: 0; overflow-x: auto; overflow-y: hidden; }
+.grafico-wrap { position: relative; flex: 1; min-height: 0; min-width: 0; overflow-x: auto; overflow-y: hidden; }
 .grafico-inner { height: 100%; min-width: 100%; }
 .grafico-inner canvas { height: 100% !important; }
 
