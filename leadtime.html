@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=24">
+    <link rel="stylesheet" href="leadtime.css?v=25">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -40,7 +40,7 @@
         </div>
         <div class="kpi-box bg-blue">
             <span class="kpi-icon">&#9201;</span>
-            <span class="kpi-label">Duraci&oacute;n Promedio</span>
+            <span class="kpi-label">Duraci&oacute;n Promedio de Ruta</span>
             <span class="kpi-value" id="kpi-promedio">--</span>
         </div>
         <div class="kpi-box bg-teal">
@@ -1922,8 +1922,7 @@ async function abrirModalMapa(rIndex) {
 
     const capasParaEncuadre = [];
 
-    // 1) Poligonos de las zonas unicas visitadas (solo el contorno de la geocerca, sin
-    // etiqueta encima -- la etiqueta va en un marcador de punto aparte, ver paso 2).
+    // 1) Poligonos de las zonas unicas visitadas (solo el contorno de la geocerca).
     const zonasUnicas = [];
     r.paradas.forEach(function (p) {
         const zonaCompleta = zonasCD.find(function (z) { return z.name === p.zona; });
@@ -1937,111 +1936,124 @@ async function abrirModalMapa(rIndex) {
         capasParaEncuadre.push(capa);
     });
 
-    // 2) DOS marcadores de PUNTO por cada parada -- uno para su ENTRADA y otro para su
-    // SALIDA (aunque sea el mismo porton fisico), para poder distinguir uno del otro. Si
-    // 2+ momentos caen en la misma zona (entrada/salida de una parada, o Salida/Retorno
-    // del viaje compartiendo Planta), cada uno se separa un poco en espiral EN EL MAPA,
-    // y ADEMAS su etiqueta se desplaza en PIXELES de pantalla (no en metros del terreno)
-    // -- el desplazamiento en metros se vuelve invisible en zoom alejado, en pixeles
-    // siempre se ve separado sin importar el zoom.
+    // 2) Traer el LogRecord PRIMERO -- el mismo dato se usa tanto para ubicar los puntos
+    // de cruce como para dibujar la linea, garantizando que siempre coincidan exactamente.
+    const esEnMovimientoVivo = !r.cerrada && (r.estadoVivo === 'EN_RUTA' || r.estadoVivo === 'DETENIDO_EN_RUTA');
+    const inicioVentana = r.paradas[0].salida || r.paradas[0].entrada;
+    const finVentana = esEnMovimientoVivo ? new Date() : (r.retorno || (r.paradas[r.paradas.length - 1] && r.paradas[r.paradas.length - 1].salida) || new Date());
+
+    let logsOrdenados = [];
+    try {
+        const logs = (esEnMovimientoVivo || !r._logsViaje)
+            ? await obtenerLogRecordConReintento(r.disp.id, inicioVentana.toISOString(), finVentana.toISOString())
+            : r._logsViaje;
+        if (esEnMovimientoVivo) r._logsViaje = logs;
+        logsOrdenados = logs.slice()
+            .filter(function (l) { const t = new Date(l.dateTime).getTime(); return t >= inicioVentana.getTime() && t <= finVentana.getTime(); })
+            .sort(function (a, b) { return new Date(a.dateTime) - new Date(b.dateTime); });
+    } catch (e) {
+        console.error('Error obteniendo LogRecord para el mapa', e);
+    }
+
+    // Punto GPS real mas cercano en el tiempo a 'instante' que SI cae DENTRO del poligono
+    // de la zona -- ese es el cruce real del borde (entra/sale ahi mismo).
+    function puntoDeCruce(instante, poligono) {
+        if (!instante || !poligono || poligono.length < 3 || logsOrdenados.length === 0) return null;
+        let mejor = null, mejorDelta = Infinity;
+        logsOrdenados.forEach(function (l) {
+            if (!puntoEnPoligono(l.latitude, l.longitude, poligono)) return;
+            const delta = Math.abs(new Date(l.dateTime).getTime() - instante.getTime());
+            if (delta < mejorDelta) { mejorDelta = delta; mejor = l; }
+        });
+        return mejor;
+    }
+
+    // 3) Un marcador por cada momento de cruce (entrada y, si corresponde, salida) de cada
+    // parada -- ubicado EXACTAMENTE donde la ruta real cruza el borde de la zona. Si
+    // entrada y salida caen practicamente en el mismo lugar, se separan un poco; si son
+    // lugares distintos (como suele pasar en la realidad), se dejan tal cual estan.
     const ocurrenciasPorZona = {};
-    function proximoPuntoDeZona(claveZona, base) {
-        const ocurrencia = ocurrenciasPorZona[claveZona] || 0;
-        ocurrenciasPorZona[claveZona] = ocurrencia + 1;
-        return { punto: desplazarPunto(base.lat, base.lon, ocurrencia), ocurrencia: ocurrencia };
-    }
-    function offsetEtiqueta(ocurrencia) {
-        // Apila las etiquetas en escalera hacia arriba/derecha segun cuantas van antes
-        return [ocurrencia * 18, -8 - ocurrencia * 30];
-    }
+    function offsetEtiqueta(ocurrencia) { return [ocurrencia * 18, -8 - ocurrencia * 30]; }
+
+    const puntosParaLinea = []; // {zonaId, entrada:{lat,lon}|null, salida:{lat,lon}|null}
 
     r.paradas.forEach(function (p, i) {
         const zonaCompleta = zonasCD.find(function (z) { return z.name === p.zona; });
-        // Se usa la posicion GPS REAL (donde el camion cruzo el borde de la zona), no un
-        // centro artificial -- asi el punto queda pegado al filo, justo donde entro/salio.
-        const centro = zonaCompleta ? calcularCentroidePoligono(zonaCompleta.points) : null;
-        const base = (p.lat != null ? { lat: p.lat, lon: p.lon } : centro);
-        if (!base) return;
+        const poligono = zonaCompleta ? zonaCompleta.points : null;
 
-        const claveZona = zonaCompleta ? zonaCompleta.id : p.zona;
         const esUltima = i === r.paradas.length - 1;
         const esFinReal = esUltima && r.cerrada;
         const etiquetaBase = etiquetaParada(i, r.paradas.length, esFinReal) + ' &mdash; ' + esc(p.zona);
         const colorBase = esFinReal ? COLOR_RETORNO : (esPlanta(p.zona) ? COLOR_PLANTA : COLOR_CD);
 
-        // Punto de ENTRADA (siempre existe)
-        const resultadoEntrada = proximoPuntoDeZona(claveZona, base);
-        const puntoEntrada = resultadoEntrada.punto;
-        const etiquetaEntrada = etiquetaBase + (esFinReal ? '' : ' (entrada)');
-        const marcadorEntrada = L.circleMarker([puntoEntrada.lat, puntoEntrada.lon], { radius: 7, color: colorBase, fillColor: colorBase, weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
-        marcadorEntrada.bindTooltip(etiquetaEntrada, {
-            permanent: true, direction: 'top', offset: offsetEtiqueta(resultadoEntrada.ocurrencia),
-            className: esFinReal ? 'mapa-etiqueta-zona mapa-etiqueta-retorno' : 'mapa-etiqueta-zona'
+        const cruceEntrada = puntoDeCruce(p.entrada, poligono);
+        const cruceSalida = (!esFinReal && p.salida && !p.salidaNoConfirmada) ? puntoDeCruce(p.salida, poligono) : null;
+
+        // Fallback si no se encontro ningun punto GPS realmente dentro del poligono
+        const fallback = p.lat != null ? { latitude: p.lat, longitude: p.lon } : null;
+        const puntoEntradaReal = cruceEntrada || fallback;
+        const puntoSalidaReal = cruceSalida || null;
+
+        puntosParaLinea.push({
+            entrada: puntoEntradaReal ? { lat: puntoEntradaReal.latitude, lon: puntoEntradaReal.longitude } : null,
+            salida: puntoSalidaReal ? { lat: puntoSalidaReal.latitude, lon: puntoSalidaReal.longitude } : null
         });
+
+        if (!puntoEntradaReal) return;
+
+        // Si entrada y salida quedaron casi en el mismo punto (mismo porton), se separan
+        // un poco para poder distinguirlos; si no, se dejan en su lugar real.
+        let posEntrada = { lat: puntoEntradaReal.latitude, lon: puntoEntradaReal.longitude };
+        let posSalida = puntoSalidaReal ? { lat: puntoSalidaReal.latitude, lon: puntoSalidaReal.longitude } : null;
+        if (posSalida && distanciaMetros(posEntrada.lat, posEntrada.lon, posSalida.lat, posSalida.lon) < 25) {
+            const claveZona = zonaCompleta ? zonaCompleta.id : p.zona;
+            const oc = ocurrenciasPorZona[claveZona] || 0;
+            ocurrenciasPorZona[claveZona] = oc + 2;
+            posEntrada = desplazarPunto(posEntrada.lat, posEntrada.lon, oc);
+            posSalida = desplazarPunto(posSalida.lat, posSalida.lon, oc + 1);
+        }
+
+        const etiquetaEntrada = etiquetaBase + (esFinReal ? '' : ' (entrada)');
+        const marcadorEntrada = L.circleMarker([posEntrada.lat, posEntrada.lon], { radius: 7, color: colorBase, fillColor: colorBase, weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
+        marcadorEntrada.bindTooltip(etiquetaEntrada, { permanent: true, direction: 'top', offset: [0, -8], className: esFinReal ? 'mapa-etiqueta-zona mapa-etiqueta-retorno' : 'mapa-etiqueta-zona' });
         marcadorEntrada.bindPopup(etiquetaEntrada);
         capasParaEncuadre.push(marcadorEntrada);
 
-        // Punto de SALIDA (si esta confirmada -- no aplica al Retorno final, ni a una
-        // ultima parada sin salida confirmada todavia)
-        if (!esFinReal && p.salida && !p.salidaNoConfirmada) {
-            const resultadoSalida = proximoPuntoDeZona(claveZona, base);
-            const puntoSalida = resultadoSalida.punto;
+        if (posSalida) {
             const etiquetaSalida = etiquetaBase + ' (salida)';
-            const marcadorSalida = L.circleMarker([puntoSalida.lat, puntoSalida.lon], { radius: 7, color: colorBase, fillColor: '#ffffff', weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
-            marcadorSalida.bindTooltip(etiquetaSalida, { permanent: true, direction: 'top', offset: offsetEtiqueta(resultadoSalida.ocurrencia), className: 'mapa-etiqueta-zona' });
+            const marcadorSalida = L.circleMarker([posSalida.lat, posSalida.lon], { radius: 7, color: colorBase, fillColor: '#ffffff', weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
+            marcadorSalida.bindTooltip(etiquetaSalida, { permanent: true, direction: 'top', offset: [0, -28], className: 'mapa-etiqueta-zona' });
             marcadorSalida.bindPopup(etiquetaSalida);
             capasParaEncuadre.push(marcadorSalida);
         }
     });
 
-    // 3) Ruta real con LogRecord -- el tramo final (llegando al Retorno) se dibuja en un
-    // color distinto. Si el viaje sigue EN RUTA o DETENIDO EN RUTA (en vivo), se pide el
-    // dato SIN cache, para traer la posicion mas fresca posible (no la de la ultima
-    // consulta general). Si esta cerrado o EN CD, se reutiliza el cache normal.
-    const esEnMovimientoVivo = !r.cerrada && (r.estadoVivo === 'EN_RUTA' || r.estadoVivo === 'DETENIDO_EN_RUTA');
-    // OJO: se usa la SALIDA real de la primera parada (cuando el camion efectivamente
-    // arranca), no su entrada -- si se usara la entrada, se incluirian los puntos GPS de
-    // cuando esta parqueado quieto ANTES de salir, generando lineas de mas junto al
-    // limite de la zona (bug confirmado).
-    const inicioVentana = r.paradas[0].salida || r.paradas[0].entrada;
-    const finVentana = esEnMovimientoVivo ? new Date() : (r.retorno || (r.paradas[r.paradas.length - 1] && r.paradas[r.paradas.length - 1].salida) || new Date());
-
+    // 4) Ruta real, CORTADA al ras del borde de cada zona (no entra al interior del
+    // poligono) -- se arma tramo por tramo: sale del punto de SALIDA de una parada,
+    // pasa por la carretera real (LogRecord), y llega al punto de ENTRADA de la
+    // siguiente -- exactamente los mismos puntos usados para los marcadores.
     try {
-        const logs = (esEnMovimientoVivo || !r._logsViaje)
-            ? await obtenerLogRecordConReintento(r.disp.id, inicioVentana.toISOString(), finVentana.toISOString())
-            : r._logsViaje;
-        if (esEnMovimientoVivo) r._logsViaje = logs; // refresca el cache con el dato fresco
+        if (logsOrdenados.length > 1) {
+            for (let i = 0; i < puntosParaLinea.length - 1; i++) {
+                const origen = puntosParaLinea[i].salida || puntosParaLinea[i].entrada;
+                const destino = puntosParaLinea[i + 1].entrada;
+                if (!origen || !destino) continue;
 
-        if (logs.length > 1) {
-            // Filtro defensivo: aunque los logs vengan de un cache mas ancho (calculado
-            // para conduccion/detenido, que si arranca desde la entrada), la linea del
-            // mapa NUNCA debe incluir puntos de antes de la salida real ni de despues del
-            // retorno real.
-            const logsOrdenados = logs.slice()
-                .filter(function (l) { const t = new Date(l.dateTime).getTime(); return t >= inicioVentana.getTime() && t <= finVentana.getTime(); })
-                .sort(function (a, b) { return new Date(a.dateTime) - new Date(b.dateTime); });
+                const tInicio = (r.paradas[i].salida || r.paradas[i].entrada).getTime();
+                const tFin = r.paradas[i + 1].entrada.getTime();
+                const tramoLogs = logsOrdenados.filter(function (l) { const t = new Date(l.dateTime).getTime(); return t >= tInicio && t <= tFin; });
 
-            // Punto de corte: inicio del ultimo tramo (salida de la penultima parada)
-            let corteRetorno = null;
-            if (r.cerrada && r.paradas.length >= 2) {
-                const penultima = r.paradas[r.paradas.length - 2];
-                if (penultima.salida) corteRetorno = penultima.salida.getTime();
-            }
+                const puntos = [[origen.lat, origen.lon]];
+                tramoLogs.forEach(function (l) { puntos.push([l.latitude, l.longitude]); });
+                puntos.push([destino.lat, destino.lon]);
 
-            const tramoPrincipal = corteRetorno ? logsOrdenados.filter(function (l) { return new Date(l.dateTime).getTime() <= corteRetorno; }) : logsOrdenados;
-            const tramoRetorno = corteRetorno ? logsOrdenados.filter(function (l) { return new Date(l.dateTime).getTime() >= corteRetorno; }) : [];
-
-            if (tramoPrincipal.length > 1) {
-                const capa = L.polyline(tramoPrincipal.map(function (l) { return [l.latitude, l.longitude]; }), { color: COLOR_RUTA, weight: 3, opacity: 0.85 }).addTo(mapaLeaflet);
-                capasParaEncuadre.push(capa);
-            }
-            if (tramoRetorno.length > 1) {
-                const capa = L.polyline(tramoRetorno.map(function (l) { return [l.latitude, l.longitude]; }), { color: COLOR_RETORNO, weight: 3, opacity: 0.9 }).addTo(mapaLeaflet);
+                const esTramoRetorno = r.cerrada && (i === puntosParaLinea.length - 2);
+                const capa = L.polyline(puntos, { color: esTramoRetorno ? COLOR_RETORNO : COLOR_RUTA, weight: 3, opacity: 0.85 }).addTo(mapaLeaflet);
                 capasParaEncuadre.push(capa);
             }
 
-            // 4) Si el viaje sigue EN RUTA o DETENIDO EN RUTA (en vivo): icono de camion
-            // en la ultima posicion GPS conocida (no movimiento en vivo, solo el ultimo dato).
+            // Icono de camion en la ultima posicion GPS conocida, si el viaje sigue
+            // EN RUTA o DETENIDO EN RUTA (en vivo) -- no movimiento en vivo, solo el ultimo dato.
             if (esEnMovimientoVivo) {
                 const ultimoPunto = logsOrdenados[logsOrdenados.length - 1];
                 const iconoCamion = L.divIcon({ html: '\uD83D\uDE9B', className: 'icono-camion-mapa', iconSize: [28, 28], iconAnchor: [14, 14] });
