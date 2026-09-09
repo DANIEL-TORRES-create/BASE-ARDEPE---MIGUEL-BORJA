@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=28">
+    <link rel="stylesheet" href="leadtime.css?v=29">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -233,6 +233,8 @@
 </div>
 
 <script>
+(function () {
+'use strict';
 /* ==========================================================================
    ARDEPE - Lead Time por CD
    Agrupa eventos de "(SEVILLANO) LEAD TIME POR CD" en RONDAS:
@@ -2261,9 +2263,25 @@ function exportarExcel(modo) {
     });
 }
 
+// Exponer al scope global SOLO las funciones que el HTML llama directo via
+// onclick/oninput/onchange (inline) -- necesario porque quedaron encerradas
+// dentro de esta funcion aislante, para no chocar con otro add-in que use
+// los mismos nombres de variables/funciones (ej. Horas de Conduccion).
+window.abrirModalMapaDesdePanel = abrirModalMapaDesdePanel;
+window.abrirPanelViaje = abrirPanelViaje;
+window.cambiarAgrupacion = cambiarAgrupacion;
+window.cambiarPestana = cambiarPestana;
+window.cerrarModalMapa = cerrarModalMapa;
+window.cerrarPanelViaje = cerrarPanelViaje;
+window.consultar = consultar;
+window.exportarExcel = exportarExcel;
+window.filtrosCambiaron = filtrosCambiaron;
+window.invertirOrden = invertirOrden;
+window.quitarPlacaSeleccionada = quitarPlacaSeleccionada;
+window.toggleGrupoPlaca = toggleGrupoPlaca;
+window.toggleMenuExportar = toggleMenuExportar;
 
-
-
+})();
 </script>
 </body>
 </html>
