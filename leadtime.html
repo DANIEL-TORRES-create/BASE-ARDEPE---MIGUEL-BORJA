@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=22">
+    <link rel="stylesheet" href="leadtime.css?v=24">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -740,6 +740,8 @@ async function consultar() {
 
         actualizarProgreso(dispositivos.length, dispositivos.length, 'Buscando retorno real de viajes sin cierre (hasta ' + BUSQUEDA_ADELANTE_HORAS + 'h adelante)...');
         await completarViajesSinRetorno(todasLasRondas, toDate);
+
+        colapsarZonasRepetidasConsecutivas(todasLasRondas);
 
         actualizarProgreso(dispositivos.length, dispositivos.length, 'Verificando estado en vivo de rondas abiertas...');
         await resolverEstadosEnVivo(todasLasRondas, toDate);
@@ -1842,6 +1844,37 @@ async function buscarCierreHaciaAdelante(ronda, limiteFinal) {
     }
 }
 
+// Cuando la MISMA zona aparece en 2+ paradas CONSECUTIVAS (sin ninguna otra zona distinta
+// en el medio), se colapsan en una sola -- quedandose con la que tuvo mayor tiempo
+// detenido, descartando las demas. No tiene limite de tiempo (a diferencia de la fusion
+// de ruido GPS, que solo aplica si el hueco es menor a 30 min). Si aparece una zona
+// distinta en el medio, las visitas NO se colapsan (podria ser una revisita real).
+function colapsarZonasRepetidasConsecutivas(rondas) {
+    rondas.forEach(function (r) {
+        if (r.paradas.length < 2) return;
+        const idxUltimaOriginal = r.paradas.length - 1;
+        const nuevas = [r.paradas[0]];
+        for (let i = 1; i < r.paradas.length; i++) {
+            const actual = r.paradas[i];
+            const anterior = nuevas[nuevas.length - 1];
+            if (actual.zona !== anterior.zona) {
+                nuevas.push(actual);
+                continue;
+            }
+            const esRetornoFinal = (i === idxUltimaOriginal) && r.cerrada;
+            if (esRetornoFinal) {
+                // El Retorno real siempre manda como la ultima entrada conocida.
+                nuevas[nuevas.length - 1] = actual;
+            } else {
+                const durAnterior = anterior.salida ? (anterior.salida - anterior.entrada) : 0;
+                const durActual = actual.salida ? (actual.salida - actual.entrada) : 0;
+                if (durActual >= durAnterior) nuevas[nuevas.length - 1] = actual;
+            }
+        }
+        r.paradas = nuevas;
+    });
+}
+
 async function completarViajesSinRetorno(rondas, toDate) {
     const ahora = new Date();
     const finDelFiltro = new Date(toDate);
@@ -1924,8 +1957,10 @@ async function abrirModalMapa(rIndex) {
 
     r.paradas.forEach(function (p, i) {
         const zonaCompleta = zonasCD.find(function (z) { return z.name === p.zona; });
+        // Se usa la posicion GPS REAL (donde el camion cruzo el borde de la zona), no un
+        // centro artificial -- asi el punto queda pegado al filo, justo donde entro/salio.
         const centro = zonaCompleta ? calcularCentroidePoligono(zonaCompleta.points) : null;
-        const base = centro || (p.lat != null ? { lat: p.lat, lon: p.lon } : null);
+        const base = (p.lat != null ? { lat: p.lat, lon: p.lon } : centro);
         if (!base) return;
 
         const claveZona = zonaCompleta ? zonaCompleta.id : p.zona;
