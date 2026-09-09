@@ -6,7 +6,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
-    <link rel="stylesheet" href="styles.css?v=12">
+    <link rel="stylesheet" href="styles.css?v=13">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
@@ -179,6 +179,8 @@
 </div>
 
 <script>
+(function () {
+'use strict';
     let geotabApi = null;
     let conductoresData = [];  // Datos agrupados por conductor
     let scData = [];           // Datos sin conductor
@@ -1697,6 +1699,27 @@
         if (el) el.innerText = texto;
         if (fill) fill.style.width = Math.round((idx / total) * 100) + '%';
     }
+
+    // Exponer al scope global SOLO las funciones que el HTML llama directo via
+    // onclick/oninput/onchange (inline) -- necesario porque quedaron encerradas
+    // dentro de esta funcion aislante, para no chocar con otro add-in que use
+    // los mismos nombres de variables/funciones (ej. Lead Time por CD).
+    window.aplicarResumenAsociar = aplicarResumenAsociar;
+    window.consultar = consultar;
+    window.exportarExcel = exportarExcel;
+    window.filtrarBuscadorAsociar = filtrarBuscadorAsociar;
+    window.filtrosCambiaron = filtrosCambiaron;
+    window.marcarAsociar = marcarAsociar;
+    window.marcarOmitir = marcarOmitir;
+    window.omitirTodoAsociar = omitirTodoAsociar;
+    window.ordenarPor = ordenarPor;
+    window.responderModalRelevo = responderModalRelevo;
+    window.toggleBuscadorAsociar = toggleBuscadorAsociar;
+    window.toggleMenuExportar = toggleMenuExportar;
+    window.verResumenAsociar = verResumenAsociar;
+    window.volverAListaAsociar = volverAListaAsociar;
+
+})();
 </script>
 </body>
 </html>
