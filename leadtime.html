@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=25">
+    <link rel="stylesheet" href="leadtime.css?v=26">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1975,7 +1975,22 @@ async function abrirModalMapa(rIndex) {
     const ocurrenciasPorZona = {};
     function offsetEtiqueta(ocurrencia) { return [ocurrencia * 18, -8 - ocurrencia * 30]; }
 
-    const puntosParaLinea = []; // {zonaId, entrada:{lat,lon}|null, salida:{lat,lon}|null}
+    // Separa un punto sin salirse del poligono de la zona: si el desplazamiento normal
+    // cae fuera, se reduce el radio progresivamente hasta que quede adentro; si nada
+    // funciona, no se desplaza (mejor no separar que salirse de la zona).
+    function separarDentroDePoligono(lat, lon, indice, poligono) {
+        if (indice === 0) return { lat: lat, lon: lon };
+        const angulo = indice * 2.4;
+        for (let factor = 1; factor <= 5; factor++) {
+            const radio = (0.0005 * indice) / factor;
+            const cand = { lat: lat + radio * Math.cos(angulo), lon: lon + radio * Math.sin(angulo) };
+            if (!poligono || puntoEnPoligono(cand.lat, cand.lon, poligono)) return cand;
+        }
+        return { lat: lat, lon: lon };
+    }
+
+    const puntosParaLinea = []; // {entrada:{lat,lon}|null, salida:{lat,lon}|null} -- SIEMPRE
+    // los mismos puntos finales (ya separados si aplico) usados tambien para los marcadores.
 
     r.paradas.forEach(function (p, i) {
         const zonaCompleta = zonasCD.find(function (z) { return z.name === p.zona; });
@@ -1994,24 +2009,23 @@ async function abrirModalMapa(rIndex) {
         const puntoEntradaReal = cruceEntrada || fallback;
         const puntoSalidaReal = cruceSalida || null;
 
-        puntosParaLinea.push({
-            entrada: puntoEntradaReal ? { lat: puntoEntradaReal.latitude, lon: puntoEntradaReal.longitude } : null,
-            salida: puntoSalidaReal ? { lat: puntoSalidaReal.latitude, lon: puntoSalidaReal.longitude } : null
-        });
-
-        if (!puntoEntradaReal) return;
+        if (!puntoEntradaReal) { puntosParaLinea.push({ entrada: null, salida: null }); return; }
 
         // Si entrada y salida quedaron casi en el mismo punto (mismo porton), se separan
-        // un poco para poder distinguirlos; si no, se dejan en su lugar real.
+        // un poco (sin salirse de la zona) para poder distinguirlos; si no, se dejan tal cual.
         let posEntrada = { lat: puntoEntradaReal.latitude, lon: puntoEntradaReal.longitude };
         let posSalida = puntoSalidaReal ? { lat: puntoSalidaReal.latitude, lon: puntoSalidaReal.longitude } : null;
         if (posSalida && distanciaMetros(posEntrada.lat, posEntrada.lon, posSalida.lat, posSalida.lon) < 25) {
             const claveZona = zonaCompleta ? zonaCompleta.id : p.zona;
             const oc = ocurrenciasPorZona[claveZona] || 0;
             ocurrenciasPorZona[claveZona] = oc + 2;
-            posEntrada = desplazarPunto(posEntrada.lat, posEntrada.lon, oc);
-            posSalida = desplazarPunto(posSalida.lat, posSalida.lon, oc + 1);
+            posEntrada = separarDentroDePoligono(posEntrada.lat, posEntrada.lon, oc, poligono);
+            posSalida = separarDentroDePoligono(posSalida.lat, posSalida.lon, oc + 1, poligono);
         }
+
+        // Estos son los puntos DEFINITIVOS (ya separados si aplico) -- se guardan aqui
+        // mismo para que la linea de ruta use exactamente estos, sin desajuste.
+        puntosParaLinea.push({ entrada: posEntrada, salida: posSalida });
 
         const etiquetaEntrada = etiquetaBase + (esFinReal ? '' : ' (entrada)');
         const marcadorEntrada = L.circleMarker([posEntrada.lat, posEntrada.lon], { radius: 7, color: colorBase, fillColor: colorBase, weight: 2, fillOpacity: 1 }).addTo(mapaLeaflet);
