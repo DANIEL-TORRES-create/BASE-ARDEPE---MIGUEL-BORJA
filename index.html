@@ -6,7 +6,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
-    <link rel="stylesheet" href="styles.css?v=11">
+    <link rel="stylesheet" href="styles.css?v=12">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
@@ -195,20 +195,42 @@
     const PAUSA_MS = 300;
     const REINTENTOS = 3;
 
+    let uiYaConfigurada = false;
+
     geotab.addin.ArdepeHorasConduccion = function (api, state) {
         return {
-            initialize: async function (api, state, callback) {
+            initialize: function (api, state, callback) {
                 geotabApi = api;
-                configurarFechas();
-                promesaConductores = cargarConductores(); // en paralelo, no bloquea la carga inicial
-                cargarDispositivosGlobal(); // catalogo para el combobox de Placa
-                configurarComboPlaca();
-                callback();
+                // Se avisa a MyGeotab que la inicializacion "termino" DE INMEDIATO (igual
+                // que en el add-in de Monitoreo, que ya no se queda pegado) -- recien
+                // DESPUES, con un pequeno respiro (setTimeout 0), se arma la interfaz y se
+                // cargan los datos. Si se arma la UI ANTES de avisar, y el DOM del add-in
+                // aun no esta listo del todo (variable segun si se entra directo o
+                // navegando desde otro add-in agrupado), el cableado puede fallar en silencio.
+                try { callback(); } catch (e) { console.error('Error ejecutando callback de initialize:', e); }
+                setTimeout(function () {
+                    configurarUI();
+                    promesaConductores = cargarConductores();
+                    cargarDispositivosGlobal();
+                }, 0);
             },
-            focus: function () {},
+            // Si MyGeotab navega entre los ARDEPE unidos dentro de un mismo contenedor sin
+            // recargar la pagina completa, "initialize" puede no volver a correr a tiempo
+            // -- "focus" SI se dispara siempre al entrar al add-in, asi que aqui se
+            // verifica y se cablea la UI si aun no lo esta (con resguardo anti-duplicado).
+            focus: function () {
+                if (!uiYaConfigurada) configurarUI();
+            },
             blur: function () {}
         };
     };
+
+    function configurarUI() {
+        if (uiYaConfigurada) return;
+        configurarFechas();
+        configurarComboPlaca();
+        uiYaConfigurada = true;
+    }
 
     // Trae TODOS los conductores de una sola vez (evita N consultas individuales).
     async function cargarConductores() {
