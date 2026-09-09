@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=27">
+    <link rel="stylesheet" href="leadtime.css?v=28">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -659,18 +659,26 @@ let uiYaConfigurada = false;
 
 geotab.addin.LeadTimeARDEPE = function (api, state) {
     return {
-        initialize: async function (api, state, callback) {
+        initialize: function (api, state, callback) {
             geotabApi = api;
-            configurarUI();
-            promesaConductores = cargarConductores();
-            promesaZonas = cargarZonasCD();
-            cargarDispositivosGlobal();
-            callback();
+            // Se avisa a MyGeotab que la inicializacion "termino" DE INMEDIATO (igual que
+            // en el add-in de Monitoreo, que ya no se queda pegado) -- recien DESPUES, con
+            // un pequeno respiro (setTimeout 0), se arma la interfaz y se cargan los datos.
+            // Si se arma la UI ANTES de avisar, y el DOM del add-in aun no esta listo del
+            // todo (variable segun si se entra directo o navegando desde otro add-in
+            // agrupado), el cableado de eventos puede fallar en silencio.
+            try { callback(); } catch (e) { console.error('Error ejecutando callback de initialize:', e); }
+            setTimeout(function () {
+                configurarUI();
+                promesaConductores = cargarConductores();
+                promesaZonas = cargarZonasCD();
+                cargarDispositivosGlobal();
+            }, 0);
         },
         // Si MyGeotab navega entre los ARDEPE unidos dentro de un mismo contenedor sin
-        // recargar la pagina completa, "initialize" puede no volver a correr a tiempo
-        // (o correr antes de que el DOM este listo) -- "focus" SI se dispara siempre al
-        // entrar al add-in, asi que aqui se verifica y se cablea la UI si aun no lo esta.
+        // recargar la pagina completa, "initialize" puede no volver a correr a tiempo --
+        // "focus" SI se dispara siempre al entrar al add-in, asi que aqui se verifica y se
+        // cablea la UI si aun no lo esta (con resguardo para no duplicar eventos).
         focus: function () {
             if (!uiYaConfigurada) configurarUI();
         },
