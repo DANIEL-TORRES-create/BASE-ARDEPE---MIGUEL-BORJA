@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=38">
+    <link rel="stylesheet" href="leadtime.css?v=40">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -282,6 +282,15 @@ function formatFechaHora(d) {
     return d.toLocaleString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+// Fecha arriba / hora abajo, en 2 lineas -- para columnas angostas de tabla, evita que
+// una sola linea larga fuerce el ancho de toda la columna.
+function formatFechaHoraApilada(d) {
+    if (!d) return '';
+    const fechaTxt = d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const horaTxt = d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+    return '<div class="fecha-apilada"><span class="fecha-apilada-dia">' + fechaTxt + '</span><span class="fecha-apilada-hora">' + horaTxt + '</span></div>';
+}
+
 function formatHoras(horasDecimal) {
     if (!horasDecimal || horasDecimal < 0) horasDecimal = 0;
     const totalMin = Math.round(horasDecimal * 60);
@@ -532,7 +541,8 @@ async function obtenerDispositivos() {
         search: { activeState: 'Active', groups: [{ id: GRUPOS.LOCAL }, { id: GRUPOS.PROVINCIA }] }
     });
     return res.filter(function (d) { return serialValido(d.serialNumber); })
-        .map(function (d) { return { id: d.id, name: d.name, grupos: (d.groups || []).map(function (g) { return g.id; }) }; });
+        .map(function (d) { return { id: d.id, name: d.name, grupos: (d.groups || []).map(function (g) { return g.id; }) }; })
+        .filter(function (d, idx, arr) { return arr.findIndex(function (x) { return x.id === d.id; }) === idx; }); // dedup: un dispositivo en 2+ grupos a la vez puede venir repetido de la API
 }
 
 // ---------------- Combobox de Placa (igual patron que Horas de Conduccion) ----------------
@@ -1197,7 +1207,11 @@ function mostrarEstadoVacio(tbodyId, colspan, mensaje, diagnostico) {
         return;
     }
     let html = '<tr><td colspan="' + colspan + '" class="estado-tabla">' + esc(mensaje);
-    if (diagnostico) {
+    // El cuadro de diagnostico tecnico solo aporta valor si SI hubo eventos pero no se
+    // pudieron ubicar en ninguna zona (posible problema real de datos/geocercas). Si
+    // simplemente no hay NINGUN evento (la placa no tuvo actividad en el periodo), ese
+    // detalle no ayuda -- se omite para no confundir con un mensaje tecnico sin sentido.
+    if (diagnostico && diagUltimaConsulta.totalEventos > 0) {
         html += '<div class="diag-caja">' +
             'Zonas CD cargadas: <b>' + zonasCD.length + '</b>' + (typeof errorZonasCD !== 'undefined' && errorZonasCD ? ' &mdash; <span style="color:#c0392b;">ERROR: ' + esc(errorZonasCD) + '</span>' : '') + '<br>' +
             'Dispositivos consultados: <b>' + diagUltimaConsulta.dispositivosConsultados + '</b> &middot; ' +
@@ -1409,9 +1423,9 @@ function crearFilaPlaca(g) {
     const duracionTxt = (g.duracionHoras != null)
         ? (formatHoras(g.duracionHoras) + (g.duracionSinConfirmar ? ' <span style="color:#c0392b;" title="Minimo conocido, no el total confirmado (falta dato de salida)">*</span>' : ''))
         : '<span style="color:#9aa4b2;">&#8212;</span>';
-    const primeraSalidaTxt = g.primeraSalida ? formatFechaHora(g.primeraSalida) : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const primeraSalidaTxt = g.primeraSalida ? formatFechaHoraApilada(g.primeraSalida) : '<span style="color:#9aa4b2;">&#8212;</span>';
     const zonaLlegadaTxt = g.zonaLlegada ? esc(g.zonaLlegada) : '<span style="color:#9aa4b2;">&#8212;</span>';
-    const fechaLlegadaTxt = (g.fechaLlegada && !g.guionLlegada) ? formatFechaHora(g.fechaLlegada) : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const fechaLlegadaTxt = (g.fechaLlegada && !g.guionLlegada) ? formatFechaHoraApilada(g.fechaLlegada) : '<span style="color:#9aa4b2;">&#8212;</span>';
     const nViajes = g.viajes.length;
 
     const coloresEstado = { 'badge-terminado': '#16a34a', 'badge-enruta': '#2563eb', 'badge-encd': '#d97706', 'badge-detenido-ruta': '#ea580c', 'badge-historico': '#9aa4b2' };
@@ -1436,11 +1450,11 @@ function crearFilaSubViaje(v, numeroViaje, flatIdx, esUltima) {
     const nombre = mapaConductoresGlobal[v.driverId] || (v.driverId || 'SIN CONDUCTOR');
     const primeraParada = v.paradas[0];
     const puntoPartida = primeraParada ? primeraParada.zona : (v.sinSalidaConocida ? 'Desconocido' : 'Planta Pucusana');
-    const fechaSalidaTxt = v.salida ? formatFechaHora(v.salida) : (primeraParada ? formatFechaHora(primeraParada.entrada) : '<span style="color:#9aa4b2;">&#8212;</span>');
+    const fechaSalidaTxt = v.salida ? formatFechaHoraApilada(v.salida) : (primeraParada ? formatFechaHoraApilada(primeraParada.entrada) : '<span style="color:#9aa4b2;">&#8212;</span>');
 
     const info = obtenerInfoLlegada(v);
     const puntoLlegadaTxt = info.zona ? esc(info.zona) : '<span style="color:#9aa4b2;">&#8212;</span>';
-    const fechaLlegadaTxt = (info.fecha && !info.guion) ? formatFechaHora(info.fecha) : '<span style="color:#9aa4b2;">&#8212;</span>';
+    const fechaLlegadaTxt = (info.fecha && !info.guion) ? formatFechaHoraApilada(info.fecha) : '<span style="color:#9aa4b2;">&#8212;</span>';
     const duracionTxt = (info.duracionHoras != null)
         ? (formatHoras(info.duracionHoras) + ((v.sinSalidaConocida || info.sinConfirmacion) ? ' <span style="color:#c0392b;" title="Minimo conocido, no el total confirmado (falta dato de salida)">*</span>' : ''))
         : '<span style="color:#9aa4b2;">&#8212;</span>';
@@ -1827,7 +1841,7 @@ document.addEventListener('click', function (e) {
 // haber visto su salida real de Planta dentro del filtro). Busca hacia atras, unicamente
 // para ESA unidad, hasta encontrar su ultima visita real a Planta Pucusana.
 
-const BUSQUEDA_ATRAS_HORAS = 120;
+const BUSQUEDA_ATRAS_HORAS = 168;
 
 // Busca hacia atras TODOS los eventos resueltos (no solo Planta), para poder reconstruir
 // el/los tramo(s) intermedios completos -- no solo el punto de Planta.
@@ -1914,7 +1928,7 @@ async function completarViajesIncompletos(rondas) {
 // estado en vivo como ya funciona). Busca hacia adelante, encadenando cuantas CDs haga
 // falta, hasta encontrar el retorno real a Planta Pucusana o agotar la ventana/72h.
 
-const BUSQUEDA_ADELANTE_HORAS = 120;
+const BUSQUEDA_ADELANTE_HORAS = 168;
 const MAX_ENCADENAMIENTOS = 15; // limite de seguridad para no iterar sin fin
 
 async function buscarCierreHaciaAdelante(ronda, limiteFinal) {
