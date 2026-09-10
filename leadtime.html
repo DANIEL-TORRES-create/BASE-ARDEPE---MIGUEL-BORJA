@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=30">
+    <link rel="stylesheet" href="leadtime.css?v=35">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -602,7 +602,8 @@ function renderizarListaPlacas(filtroTexto) {
             const id = el.getAttribute('data-id');
             const idx = placasSeleccionadas.indexOf(id);
             if (idx === -1) placasSeleccionadas.push(id); else placasSeleccionadas.splice(idx, 1);
-            document.getElementById('filtro-placa-texto').value = '';
+            const inputTexto = document.getElementById('filtro-placa-texto');
+            if (inputTexto) inputTexto.value = '';
             renderizarChipsPlaca();
             renderizarListaPlacas('');
             filtrosCambiaron();
@@ -634,15 +635,19 @@ function renderizarChipsPlaca() {
 function configurarFechas() {
     const hoy = new Date();
     const ayer = new Date(hoy); ayer.setDate(ayer.getDate() - 1);
-    document.getElementById('fecha-inicio').value = toDateInputStr(ayer);
-    document.getElementById('fecha-fin').value = toDateInputStr(hoy);
-
     const inputInicio = document.getElementById('fecha-inicio');
+    const inputFin = document.getElementById('fecha-fin');
+    if (inputInicio) inputInicio.value = toDateInputStr(ayer);
+    if (inputFin) inputFin.value = toDateInputStr(hoy);
+
     if (inputInicio && inputInicio.dataset.wired !== 'true') {
         inputInicio.dataset.wired = 'true';
         inputInicio.addEventListener('change', function () {
-            const ini = new Date(document.getElementById('fecha-inicio').value);
+            const iniEl = document.getElementById('fecha-inicio');
+            if (!iniEl) return;
+            const ini = new Date(iniEl.value);
             const finInput = document.getElementById('fecha-fin');
+            if (!finInput) return;
             const finActual = new Date(finInput.value);
             const maxFin = new Date(ini); maxFin.setDate(maxFin.getDate() + MAX_DIAS);
             if (finActual < ini) finInput.value = toDateInputStr(ini);
@@ -671,7 +676,9 @@ function inicializarSelectoresHora() {
 }
 
 function leerHora(prefix) {
-    return document.getElementById(prefix + '-h').value + ':' + document.getElementById(prefix + '-m').value;
+    const h = document.getElementById(prefix + '-h');
+    const m = document.getElementById(prefix + '-m');
+    return (h ? h.value : '00') + ':' + (m ? m.value : '00');
 }
 
 function construirISO(fechaStr, horaStr) {
@@ -730,11 +737,15 @@ async function consultar() {
     rondasData = [];
     gruposActuales = [];
     rondasFiltradasActuales = [];
-    document.getElementById('tbody-resumen').innerHTML = '<tr><td colspan="11" class="estado-tabla">Consultando...</td></tr>';
+    const tbodyResumen = document.getElementById('tbody-resumen');
+    if (tbodyResumen) tbodyResumen.innerHTML = '<tr><td colspan="11" class="estado-tabla">Consultando...</td></tr>';
 
-    const fechaInicio = document.getElementById('fecha-inicio').value;
+    const elFechaInicio = document.getElementById('fecha-inicio');
+    const elFechaFin = document.getElementById('fecha-fin');
+    if (!elFechaInicio || !elFechaFin) { alert('No se pudo leer el formulario. Recarga la pagina e intenta de nuevo.'); return; }
+    const fechaInicio = elFechaInicio.value;
     const horaInicio = leerHora('hora-inicio');
-    const fechaFin = document.getElementById('fecha-fin').value;
+    const fechaFin = elFechaFin.value;
     const horaFin = leerHora('hora-fin');
     if (!fechaInicio || !fechaFin) { alert('Completa el rango de fechas.'); return; }
 
@@ -745,8 +756,7 @@ async function consultar() {
     if (dias > MAX_DIAS + 0.01) { alert('El rango maximo permitido es ' + MAX_DIAS + ' dias.'); return; }
 
     const btn = document.getElementById('btn-consultar');
-    btn.disabled = true;
-    btn.innerText = '\u23F3 Consultando...';
+    if (btn) { btn.disabled = true; btn.innerText = '\u23F3 Consultando...'; }
     diagUltimaConsulta = { dispositivosConsultados: 0, dispositivosConEventos: 0, totalEventos: 0, eventosSinZona: 0, eventosSinGPS: 0 };
     diagEventosCrudos = [];
     mostrarProgreso(true, 'Preparando consulta...');
@@ -805,10 +815,10 @@ async function consultar() {
     } catch (e) {
         console.error(e);
         rondasData = [];
-        document.getElementById('tbody-resumen').innerHTML = '<tr><td colspan="11" class="estado-tabla" style="color:#c0392b;">Error al consultar la API: ' + esc(e && e.message ? e.message : String(e)) + '</td></tr>';
+        const tbodyErr = document.getElementById('tbody-resumen');
+        if (tbodyErr) tbodyErr.innerHTML = '<tr><td colspan="11" class="estado-tabla" style="color:#c0392b;">Error al consultar la API: ' + esc(e && e.message ? e.message : String(e)) + '</td></tr>';
     } finally {
-        btn.disabled = false;
-        btn.innerText = '\uD83D\uDD0D Consultar';
+        if (btn) { btn.disabled = false; btn.innerText = '\uD83D\uDD0D Consultar'; }
         mostrarProgreso(false);
     }
 }
@@ -1136,16 +1146,22 @@ function calcularEstado(r) {
 // ---------------- Filtros ----------------
 
 function cambiarPestana(nombre) {
-    document.getElementById('tab-btn-comportamiento').classList.toggle('active', nombre === 'comportamiento');
-    document.getElementById('tab-btn-tendencias').classList.toggle('active', nombre === 'tendencias');
-    document.getElementById('vista-comportamiento').style.display = nombre === 'comportamiento' ? 'block' : 'none';
-    document.getElementById('vista-tendencias').style.display = nombre === 'tendencias' ? 'block' : 'none';
+    const btnComp = document.getElementById('tab-btn-comportamiento');
+    const btnTend = document.getElementById('tab-btn-tendencias');
+    const vistaComp = document.getElementById('vista-comportamiento');
+    const vistaTend = document.getElementById('vista-tendencias');
+    if (btnComp) btnComp.classList.toggle('active', nombre === 'comportamiento');
+    if (btnTend) btnTend.classList.toggle('active', nombre === 'tendencias');
+    if (vistaComp) vistaComp.style.display = nombre === 'comportamiento' ? 'block' : 'none';
+    if (vistaTend) vistaTend.style.display = nombre === 'tendencias' ? 'block' : 'none';
     cerrarPanelViaje(); // el panel de un viaje no debe quedar flotando al cambiar de pestana
 }
 
 function filtrarDatos(lista) {
-    const fFlota = document.getElementById('filtro-flota').value;
-    const fConductor = (document.getElementById('filtro-conductor').value || '').toUpperCase().trim();
+    const elFlota = document.getElementById('filtro-flota');
+    const elConductor = document.getElementById('filtro-conductor');
+    const fFlota = elFlota ? elFlota.value : 'TODOS';
+    const fConductor = (elConductor ? elConductor.value : '' || '').toUpperCase().trim();
 
     return lista.filter(function (r) {
         if (fFlota !== 'TODOS' && r.flota !== fFlota) return false;
@@ -1161,8 +1177,10 @@ function filtrarDatos(lista) {
 function filtrosCambiaron() { renderizarComportamiento(); actualizarKPIs(); renderizarPanelLateral(); }
 
 function mostrarEstadoVacio(tbodyId, colspan, mensaje, diagnostico) {
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
     if (!yaConsultado) {
-        document.getElementById(tbodyId).innerHTML = '<tr><td colspan="' + colspan + '" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="' + colspan + '" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>';
         return;
     }
     let html = '<tr><td colspan="' + colspan + '" class="estado-tabla">' + esc(mensaje);
@@ -1176,7 +1194,7 @@ function mostrarEstadoVacio(tbodyId, colspan, mensaje, diagnostico) {
             '</div>';
     }
     html += '</td></tr>';
-    document.getElementById(tbodyId).innerHTML = html;
+    tbody.innerHTML = html;
 }
 
 // ---------------- Info de llegada (usada por Nivel 1 y Nivel 2 por igual, para que
@@ -1353,7 +1371,8 @@ function renderizarComportamiento() {
         }
     });
 
-    document.getElementById('tbody-resumen').innerHTML = html;
+    const tbodyEl = document.getElementById('tbody-resumen');
+    if (tbodyEl) tbodyEl.innerHTML = html;
 }
 
 function crearFilaResumenConductores(g) {
@@ -1486,11 +1505,13 @@ function abrirPanelViaje(idx) {
     panelViajeIdxActual = idx;
     window.scrollTo(0, 0); // asegura que el panel (absolute) calce con la pantalla visible
 
-    document.getElementById('sp-placa').innerText = r.disp.name;
+    const elPlaca = document.getElementById('sp-placa');
+    if (elPlaca) elPlaca.innerText = r.disp.name;
     const nombre = mapaConductoresGlobal[r.driverId] || (r.driverId || 'SIN CONDUCTOR');
     const estado = calcularEstado(r);
 
-    document.getElementById('sp-meta').innerHTML =
+    const elMeta = document.getElementById('sp-meta');
+    if (elMeta) elMeta.innerHTML =
         '<div class="sp-meta-fila"><span>Conductor</span><b>' + esc(nombre) + '</b></div>' +
         '<div class="sp-meta-fila"><span>Flota</span><b>' + esc(r.flota) + '</b></div>' +
         '<div class="sp-meta-fila"><span>Duraci\u00f3n total</span><b>' + (r.cerrada ? formatHoras(r.duracionHoras) : '\u2014') + '</b></div>' +
@@ -1505,13 +1526,17 @@ function abrirPanelViaje(idx) {
         const p = r.paradas[i];
         desglosePorTramo.push((p.conduccionHastaAqui != null) ? { conduccionHoras: p.conduccionHastaAqui, detenidoHoras: p.detenidoRutaHastaAqui } : null);
     }
-    document.getElementById('sp-timeline').innerHTML = construirTimelineVertical(r, desglosePorTramo);
+    const elTimeline = document.getElementById('sp-timeline');
+    if (elTimeline) elTimeline.innerHTML = construirTimelineVertical(r, desglosePorTramo);
 
     const hayCoords = r.paradas.some(function (p) { return p.lat != null; });
-    document.getElementById('sp-btn-mapa').style.display = hayCoords ? 'block' : 'none';
+    const elBtnMapa = document.getElementById('sp-btn-mapa');
+    if (elBtnMapa) elBtnMapa.style.display = hayCoords ? 'block' : 'none';
 
-    document.getElementById('side-panel-viaje').classList.add('open');
-    document.getElementById('side-panel-overlay').classList.add('open');
+    const elPanel = document.getElementById('side-panel-viaje');
+    const elOverlay = document.getElementById('side-panel-overlay');
+    if (elPanel) elPanel.classList.add('open');
+    if (elOverlay) elOverlay.classList.add('open');
 
     // Resalta la fila seleccionada en la tabla, para no perder la referencia
     Array.prototype.forEach.call(document.querySelectorAll('.fila-subviaje.seleccionada'), function (el) { el.classList.remove('seleccionada'); });
@@ -1520,8 +1545,10 @@ function abrirPanelViaje(idx) {
 }
 
 function cerrarPanelViaje() {
-    document.getElementById('side-panel-viaje').classList.remove('open');
-    document.getElementById('side-panel-overlay').classList.remove('open');
+    const panel = document.getElementById('side-panel-viaje');
+    const overlay = document.getElementById('side-panel-overlay');
+    if (panel) panel.classList.remove('open');
+    if (overlay) overlay.classList.remove('open');
     Array.prototype.forEach.call(document.querySelectorAll('.fila-subviaje.seleccionada'), function (el) { el.classList.remove('seleccionada'); });
     panelViajeIdxActual = -1;
 }
@@ -1602,10 +1629,14 @@ function actualizarKPIs() {
         if (prom > mejorProm) { mejorProm = prom; topCD = k + ' (' + formatHoras(prom) + ')'; }
     });
 
-    document.getElementById('kpi-terminadas').innerText = cerradas.length;
-    document.getElementById('kpi-encurso').innerText = enCurso.length;
-    document.getElementById('kpi-promedio').innerText = cerradas.length ? formatHoras(promedio) : '--';
-    document.getElementById('kpi-topcd').innerText = topCD;
+    const elTerminadas = document.getElementById('kpi-terminadas');
+    const elEncurso = document.getElementById('kpi-encurso');
+    const elPromedio = document.getElementById('kpi-promedio');
+    const elTopcd = document.getElementById('kpi-topcd');
+    if (elTerminadas) elTerminadas.innerText = cerradas.length;
+    if (elEncurso) elEncurso.innerText = enCurso.length;
+    if (elPromedio) elPromedio.innerText = cerradas.length ? formatHoras(promedio) : '--';
+    if (elTopcd) elTopcd.innerText = topCD;
 }
 
 // ---------------- Panel lateral de rankings ----------------
@@ -1635,10 +1666,13 @@ function invertirOrden(cual) {
 
 function renderizarPanelLateral() {
     const lista = filtrarDatos(rondasData);
+    const elRankingCds = document.getElementById('ranking-cds');
+    const elRankingRondas = document.getElementById('ranking-rondas');
+    const elRankingRutas = document.getElementById('ranking-rutas');
     if (lista.length === 0) {
-        document.getElementById('ranking-cds').innerHTML = '<div class="ranking-vacio">Sin datos.</div>';
-        document.getElementById('ranking-rondas').innerHTML = '<div class="ranking-vacio">Sin datos.</div>';
-        document.getElementById('ranking-rutas').innerHTML = '<div class="ranking-vacio">Sin datos.</div>';
+        if (elRankingCds) elRankingCds.innerHTML = '<div class="ranking-vacio">Sin datos.</div>';
+        if (elRankingRondas) elRankingRondas.innerHTML = '<div class="ranking-vacio">Sin datos.</div>';
+        if (elRankingRutas) elRankingRutas.innerHTML = '<div class="ranking-vacio">Sin datos.</div>';
         if (graficoVisitasCD) { graficoVisitasCD.destroy(); graficoVisitasCD = null; }
         if (graficoPlacasViajes) { graficoPlacasViajes.destroy(); graficoPlacasViajes = null; }
         return;
@@ -1667,19 +1701,23 @@ function renderizarPanelLateral() {
 
     // ---- Grafico de lineas: numero de visitas por CD ----
     const cdsOrdenadosPorVisitas = Object.keys(visitasPorCD).sort(function (a, b) { return visitasPorCD[b] - visitasPorCD[a]; });
-    document.getElementById('grafico-visitas-cd-inner').style.width = Math.max(600, cdsOrdenadosPorVisitas.length * 70) + 'px';
+    const contVisitasCdInner = document.getElementById('grafico-visitas-cd-inner');
+    const canvasVisitasCd = document.getElementById('grafico-visitas-cd');
+    if (contVisitasCdInner) contVisitasCdInner.style.width = Math.max(600, cdsOrdenadosPorVisitas.length * 70) + 'px';
     if (graficoVisitasCD) graficoVisitasCD.destroy();
-    graficoVisitasCD = new Chart(document.getElementById('grafico-visitas-cd'), {
-        type: 'line',
-        data: {
-            labels: cdsOrdenadosPorVisitas,
-            datasets: [{
-                label: 'Visitas', data: cdsOrdenadosPorVisitas.map(function (k) { return visitasPorCD[k]; }),
-                borderColor: '#002d72', backgroundColor: 'rgba(0,45,114,0.12)', fill: true, tension: 0.25, pointRadius: 4, pointBackgroundColor: '#002d72'
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
-    });
+    if (canvasVisitasCd) {
+        graficoVisitasCD = new Chart(canvasVisitasCd, {
+            type: 'line',
+            data: {
+                labels: cdsOrdenadosPorVisitas,
+                datasets: [{
+                    label: 'Visitas', data: cdsOrdenadosPorVisitas.map(function (k) { return visitasPorCD[k]; }),
+                    borderColor: '#002d72', backgroundColor: 'rgba(0,45,114,0.12)', fill: true, tension: 0.25, pointRadius: 4, pointBackgroundColor: '#002d72'
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+        });
+    }
 
     // ---- Grafico de barras verticales: cuantos viajes, agrupado por Placa o Conductor (toggle) ----
     const mapaConteoViajes = {};
@@ -1688,16 +1726,20 @@ function renderizarPanelLateral() {
         mapaConteoViajes[clave] = (mapaConteoViajes[clave] || 0) + 1;
     });
     const clavesConteo = Object.keys(mapaConteoViajes).sort(function (a, b) { return mapaConteoViajes[b] - mapaConteoViajes[a]; });
-    document.getElementById('grafico-placas-viajes-inner').style.width = Math.max(600, clavesConteo.length * 55) + 'px';
+    const contPlacasInner = document.getElementById('grafico-placas-viajes-inner');
+    const canvasPlacasViajes = document.getElementById('grafico-placas-viajes');
+    if (contPlacasInner) contPlacasInner.style.width = Math.max(600, clavesConteo.length * 55) + 'px';
     if (graficoPlacasViajes) graficoPlacasViajes.destroy();
-    graficoPlacasViajes = new Chart(document.getElementById('grafico-placas-viajes'), {
-        type: 'bar',
-        data: {
-            labels: clavesConteo,
-            datasets: [{ label: 'Viajes', data: clavesConteo.map(function (k) { return mapaConteoViajes[k]; }), backgroundColor: '#d97706', borderRadius: 4 }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
-    });
+    if (canvasPlacasViajes) {
+        graficoPlacasViajes = new Chart(canvasPlacasViajes, {
+            type: 'bar',
+            data: {
+                labels: clavesConteo,
+                datasets: [{ label: 'Viajes', data: clavesConteo.map(function (k) { return mapaConteoViajes[k]; }), backgroundColor: '#d97706', borderRadius: 4 }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+        });
+    }
 
     // ---- Ruta mas frecuente (firma de la secuencia de CDs) ----
     const mapaRutas = {};
@@ -1710,6 +1752,7 @@ function renderizarPanelLateral() {
 
 function pintarRanking(elId, mapaValores, formateador, invertido, prefijo) {
     const cont = document.getElementById(elId);
+    if (!cont) return;
     let claves = Object.keys(mapaValores).sort(function (a, b) { return mapaValores[b] - mapaValores[a]; });
     if (invertido) claves = claves.reverse();
     if (claves.length === 0) { cont.innerHTML = '<div class="ranking-vacio">Sin datos.</div>'; return; }
@@ -1728,25 +1771,32 @@ function pintarRanking(elId, mapaValores, formateador, invertido, prefijo) {
 // ---------------- Progreso ----------------
 
 function mostrarProgreso(on, texto) {
-    document.getElementById('progreso-wrap').style.display = on ? 'block' : 'none';
-    if (texto) document.getElementById('progreso-texto').innerText = texto;
-    if (!on) document.getElementById('progreso-bar-fill').style.width = '0%';
+    const wrap = document.getElementById('progreso-wrap');
+    if (wrap) wrap.style.display = on ? 'block' : 'none';
+    const txtEl = document.getElementById('progreso-texto');
+    if (texto && txtEl) txtEl.innerText = texto;
+    const barEl = document.getElementById('progreso-bar-fill');
+    if (!on && barEl) barEl.style.width = '0%';
 }
 
 function actualizarProgreso(actual, total, texto) {
-    document.getElementById('progreso-texto').innerText = texto;
+    const txtEl = document.getElementById('progreso-texto');
+    if (txtEl) txtEl.innerText = texto;
     const pct = total > 0 ? Math.min(100, (actual / total) * 100) : 0;
-    document.getElementById('progreso-bar-fill').style.width = pct + '%';
+    const barEl = document.getElementById('progreso-bar-fill');
+    if (barEl) barEl.style.width = pct + '%';
 }
 
 // ---------------- Menu de exportar ----------------
 
 function toggleMenuExportar() {
-    document.getElementById('combo-exportar-lista').classList.toggle('open');
+    const lista = document.getElementById('combo-exportar-lista');
+    if (lista) lista.classList.toggle('open');
 }
 document.addEventListener('click', function (e) {
     const combo = document.getElementById('combo-exportar');
-    if (combo && !combo.contains(e.target)) document.getElementById('combo-exportar-lista').classList.remove('open');
+    const lista = document.getElementById('combo-exportar-lista');
+    if (combo && lista && !combo.contains(e.target)) lista.classList.remove('open');
 });
 
 // ---------------- Busqueda hacia atras (72h) para viajes con inicio incompleto ----------------
@@ -1955,9 +2005,12 @@ async function abrirModalMapa(rIndex) {
     if (!r) return;
     window.scrollTo(0, 0); // asegura que el modal (absolute) calce con la pantalla visible
 
-    document.getElementById('modal-mapa-titulo').innerText = r.disp.name + ' \u2014 ' + (r.firma || 'Ruta');
-    document.getElementById('modal-mapa-overlay').style.display = 'flex';
+    const elTitulo = document.getElementById('modal-mapa-titulo');
+    const elOverlay = document.getElementById('modal-mapa-overlay');
+    if (elTitulo) elTitulo.innerText = r.disp.name + ' \u2014 ' + (r.firma || 'Ruta');
+    if (elOverlay) elOverlay.style.display = 'flex';
     const contenedor = document.getElementById('mapa-ronda');
+    if (!contenedor) return;
     contenedor.innerHTML = '<div style="padding:60px;text-align:center;color:#8892a0;">Cargando ruta real...</div>';
 
     if (mapaLeaflet) { mapaLeaflet.remove(); mapaLeaflet = null; }
@@ -2132,7 +2185,8 @@ async function abrirModalMapa(rIndex) {
 }
 
 function cerrarModalMapa() {
-    document.getElementById('modal-mapa-overlay').style.display = 'none';
+    const overlay = document.getElementById('modal-mapa-overlay');
+    if (overlay) overlay.style.display = 'none';
     if (mapaLeaflet) { mapaLeaflet.remove(); mapaLeaflet = null; }
 }
 
@@ -2175,7 +2229,8 @@ function estilarHojaExcel(ws, encabezados, filas, colsHoras, anchos) {
 }
 
 function exportarExcel(modo) {
-    document.getElementById('combo-exportar-lista').classList.remove('open');
+    const comboLista = document.getElementById('combo-exportar-lista');
+    if (comboLista) comboLista.classList.remove('open');
     const lista = filtrarDatos(rondasData);
     if (lista.length === 0) { alert('No hay datos para exportar. Consulta primero.'); return; }
 
