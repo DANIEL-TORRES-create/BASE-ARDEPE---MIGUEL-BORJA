@@ -298,6 +298,15 @@ body {
 
 /* ---------- Menu de exportar ---------- */
 .combo-exportar { position: relative; }
+.contador-unidades {
+    font-size: 11px;
+    font-weight: 800;
+    color: #556070;
+    background: #eef2f9;
+    padding: 3px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
 
 .combo-exportar-lista {
     position: absolute;
