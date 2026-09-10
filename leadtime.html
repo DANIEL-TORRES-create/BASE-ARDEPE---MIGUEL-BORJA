@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=29">
+    <link rel="stylesheet" href="leadtime.css?v=30">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -541,22 +541,41 @@ function limpiarPlacasFueraDeFlota() {
     if (placasSeleccionadas.length !== antes) renderizarChipsPlaca();
 }
 
+let listenerDocumentoComboYaPuesto = false; // el 'document' SI persiste siempre, asi que este listener se agrega una sola vez en toda la sesion; los elementos internos del combo pueden recrearse al volver al add-in, asi que esos se revisan por elemento.
+
 function configurarComboPlaca() {
     const input = document.getElementById('filtro-placa-texto');
     const lista = document.getElementById('combo-placa-lista');
+    if (!input || !lista) return;
 
-    function abrirLista() {
-        renderizarListaPlacas(input.value);
-        lista.classList.add('open');
+    // El INPUT puede ser un elemento NUEVO si MyGeotab recreo el HTML al volver a este
+    // add-in (aunque "initialize" no haya vuelto a correr) -- se revisa con un atributo
+    // propio del elemento, no con una bandera global, para que siempre se cablee si es
+    // un elemento fresco, sin duplicar el evento si sigue siendo el mismo de antes.
+    if (input.dataset.wired !== 'true') {
+        input.dataset.wired = 'true';
+        function abrirLista() {
+            renderizarListaPlacas(input.value);
+            lista.classList.add('open');
+        }
+        input.addEventListener('focus', abrirLista);
+        input.addEventListener('input', abrirLista);
     }
 
-    input.addEventListener('focus', abrirLista);
-    input.addEventListener('input', abrirLista);
-    document.addEventListener('click', function (e) {
-        if (!document.getElementById('combo-placa').contains(e.target)) lista.classList.remove('open');
-    });
+    if (!listenerDocumentoComboYaPuesto) {
+        document.addEventListener('click', function (e) {
+            const comboActual = document.getElementById('combo-placa');
+            const listaActual = document.getElementById('combo-placa-lista');
+            if (comboActual && listaActual && !comboActual.contains(e.target)) listaActual.classList.remove('open');
+        });
+        listenerDocumentoComboYaPuesto = true;
+    }
 
-    document.getElementById('filtro-flota').addEventListener('change', limpiarPlacasFueraDeFlota);
+    const selFlota = document.getElementById('filtro-flota');
+    if (selFlota && selFlota.dataset.wiredCombo !== 'true') {
+        selFlota.dataset.wiredCombo = 'true';
+        selFlota.addEventListener('change', limpiarPlacasFueraDeFlota);
+    }
 
     renderizarChipsPlaca();
 }
@@ -618,14 +637,18 @@ function configurarFechas() {
     document.getElementById('fecha-inicio').value = toDateInputStr(ayer);
     document.getElementById('fecha-fin').value = toDateInputStr(hoy);
 
-    document.getElementById('fecha-inicio').addEventListener('change', function () {
-        const ini = new Date(document.getElementById('fecha-inicio').value);
-        const finInput = document.getElementById('fecha-fin');
-        const finActual = new Date(finInput.value);
-        const maxFin = new Date(ini); maxFin.setDate(maxFin.getDate() + MAX_DIAS);
-        if (finActual < ini) finInput.value = toDateInputStr(ini);
-        else if (finActual > maxFin) finInput.value = toDateInputStr(maxFin);
-    });
+    const inputInicio = document.getElementById('fecha-inicio');
+    if (inputInicio && inputInicio.dataset.wired !== 'true') {
+        inputInicio.dataset.wired = 'true';
+        inputInicio.addEventListener('change', function () {
+            const ini = new Date(document.getElementById('fecha-inicio').value);
+            const finInput = document.getElementById('fecha-fin');
+            const finActual = new Date(finInput.value);
+            const maxFin = new Date(ini); maxFin.setDate(maxFin.getDate() + MAX_DIAS);
+            if (finActual < ini) finInput.value = toDateInputStr(ini);
+            else if (finActual > maxFin) finInput.value = toDateInputStr(maxFin);
+        });
+    }
 }
 
 function toDateInputStr(d) {
@@ -657,8 +680,6 @@ function construirISO(fechaStr, horaStr) {
 
 // ---------------- Entrada del add-in ----------------
 
-let uiYaConfigurada = false;
-
 geotab.addin.LeadTimeARDEPE = function (api, state) {
     return {
         initialize: function (api, state, callback) {
@@ -677,23 +698,24 @@ geotab.addin.LeadTimeARDEPE = function (api, state) {
                 cargarDispositivosGlobal();
             }, 0);
         },
-        // Si MyGeotab navega entre los ARDEPE unidos dentro de un mismo contenedor sin
-        // recargar la pagina completa, "initialize" puede no volver a correr a tiempo --
-        // "focus" SI se dispara siempre al entrar al add-in, asi que aqui se verifica y se
-        // cablea la UI si aun no lo esta (con resguardo para no duplicar eventos).
+        // "focus" se dispara CADA VEZ que se entra a este add-in (incluso navegando desde
+        // otro add-in agrupado en el mismo contenedor, sin recargar la pagina). Si
+        // MyGeotab recrea el HTML del add-in al volver (aunque no vuelva a correr
+        // "initialize"), los elementos son NUEVOS y necesitan su cableado de nuevo -- por
+        // eso "configurarUI" se llama SIEMPRE aqui, no solo la primera vez. Cada funcion
+        // interna se cuida sola (revisa su propio elemento) para no duplicar eventos si
+        // el elemento sigue siendo el mismo de antes.
         focus: function () {
-            if (!uiYaConfigurada) configurarUI();
+            configurarUI();
         },
         blur: function () {}
     };
 };
 
 function configurarUI() {
-    if (uiYaConfigurada) return;
     configurarFechas();
     inicializarSelectoresHora();
     configurarComboPlaca();
-    uiYaConfigurada = true;
 }
 
 // ---------------- Consulta principal ----------------
