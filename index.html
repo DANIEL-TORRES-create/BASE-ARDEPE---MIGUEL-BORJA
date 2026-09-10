@@ -6,7 +6,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
-    <link rel="stylesheet" href="styles.css?v=13">
+    <link rel="stylesheet" href="styles.css?v=14">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
@@ -197,8 +197,6 @@
     const PAUSA_MS = 300;
     const REINTENTOS = 3;
 
-    let uiYaConfigurada = false;
-
     geotab.addin.ArdepeHorasConduccion = function (api, state) {
         return {
             initialize: function (api, state, callback) {
@@ -216,22 +214,23 @@
                     cargarDispositivosGlobal();
                 }, 0);
             },
-            // Si MyGeotab navega entre los ARDEPE unidos dentro de un mismo contenedor sin
-            // recargar la pagina completa, "initialize" puede no volver a correr a tiempo
-            // -- "focus" SI se dispara siempre al entrar al add-in, asi que aqui se
-            // verifica y se cablea la UI si aun no lo esta (con resguardo anti-duplicado).
+            // "focus" se dispara CADA VEZ que se entra a este add-in (incluso navegando
+            // desde otro add-in agrupado en el mismo contenedor, sin recargar la pagina).
+            // Si MyGeotab recrea el HTML del add-in al volver (aunque no vuelva a correr
+            // "initialize"), los elementos son NUEVOS y necesitan su cableado de nuevo --
+            // por eso "configurarUI" se llama SIEMPRE aqui, no solo la primera vez. Cada
+            // funcion interna se cuida sola (revisa su propio elemento) para no duplicar
+            // eventos si el elemento sigue siendo el mismo de antes.
             focus: function () {
-                if (!uiYaConfigurada) configurarUI();
+                configurarUI();
             },
             blur: function () {}
         };
     };
 
     function configurarUI() {
-        if (uiYaConfigurada) return;
         configurarFechas();
         configurarComboPlaca();
-        uiYaConfigurada = true;
     }
 
     // Trae TODOS los conductores de una sola vez (evita N consultas individuales).
@@ -260,26 +259,41 @@
 
     // ---------------- Combobox de Placa (busqueda API, seleccion opcional) ----------------
 
+    let listenerDocumentoComboYaPuesto = false; // el 'document' SI persiste siempre, asi que este listener se agrega una sola vez en toda la sesion; los elementos internos del combo pueden recrearse al volver al add-in, asi que esos se revisan por elemento.
+
     function configurarComboPlaca() {
         const input = document.getElementById('filtro-placa');
         const lista = document.getElementById('combo-placa-lista');
+        if (!input || !lista) return;
 
-        function abrirLista(filtroTexto) {
-            renderizarListaPlacas(filtroTexto);
-            lista.classList.add('open');
+        // El INPUT puede ser un elemento NUEVO si MyGeotab recreo el HTML al volver a
+        // este add-in (aunque "initialize" no haya vuelto a correr) -- se revisa con un
+        // atributo propio del elemento, no con una bandera global, para que siempre se
+        // cablee si es un elemento fresco, sin duplicar el evento si sigue siendo el mismo.
+        if (input.dataset.wired !== 'true') {
+            input.dataset.wired = 'true';
+            function abrirLista(filtroTexto) {
+                renderizarListaPlacas(filtroTexto);
+                lista.classList.add('open');
+            }
+            input.addEventListener('focus', function () { abrirLista(input.value); });
+            input.addEventListener('input', function () {
+                placaSeleccionadaId = null; // si edita el texto, se invalida la seleccion exacta
+                abrirLista(input.value);
+                filtrosCambiaron(); // sigue funcionando como filtro en vivo sobre lo ya cargado
+            });
         }
 
-        input.addEventListener('focus', function () { abrirLista(input.value); });
-        input.addEventListener('input', function () {
-            placaSeleccionadaId = null; // si edita el texto, se invalida la seleccion exacta
-            abrirLista(input.value);
-            filtrosCambiaron(); // sigue funcionando como filtro en vivo sobre lo ya cargado
-        });
-        document.addEventListener('click', function (e) {
-            if (!document.getElementById('combo-placa').contains(e.target)) {
-                lista.classList.remove('open');
-            }
-        });
+        if (!listenerDocumentoComboYaPuesto) {
+            document.addEventListener('click', function (e) {
+                const comboActual = document.getElementById('combo-placa');
+                const listaActual = document.getElementById('combo-placa-lista');
+                if (comboActual && listaActual && !comboActual.contains(e.target)) {
+                    listaActual.classList.remove('open');
+                }
+            });
+            listenerDocumentoComboYaPuesto = true;
+        }
     }
 
     function renderizarListaPlacas(filtroTexto) {
@@ -332,7 +346,11 @@
         document.getElementById('fecha-fin').value = formatFechaInput(ahora);
         document.getElementById('fecha-fin').max = formatFechaInput(ahora);
 
-        document.getElementById('fecha-inicio').addEventListener('change', actualizarLimiteFechaFin);
+        const inputInicio = document.getElementById('fecha-inicio');
+        if (inputInicio && inputInicio.dataset.wired !== 'true') {
+            inputInicio.dataset.wired = 'true';
+            inputInicio.addEventListener('change', actualizarLimiteFechaFin);
+        }
         actualizarLimiteFechaFin();
     }
 
