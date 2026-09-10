@@ -6,7 +6,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>ARDEPE - Control de Horas de Conducci&oacute;n</title>
-    <link rel="stylesheet" href="styles.css?v=14">
+    <link rel="stylesheet" href="styles.css?v=19">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
@@ -319,14 +319,15 @@
         Array.prototype.forEach.call(lista.querySelectorAll('.combo-placa-item'), function (el) {
             el.onclick = function () {
                 const id = el.getAttribute('data-id');
+                const inputPlaca = document.getElementById('filtro-placa');
                 if (id === '__TODAS__') {
                     placaSeleccionadaId = null;
-                    document.getElementById('filtro-placa').value = '';
+                    if (inputPlaca) inputPlaca.value = '';
                 } else {
                     const disp = dispositivosGlobal.find(function (d) { return d.id === id; });
                     if (disp) {
                         placaSeleccionadaId = id;
-                        document.getElementById('filtro-placa').value = disp.name;
+                        if (inputPlaca) inputPlaca.value = disp.name;
                     }
                 }
                 lista.classList.remove('open');
@@ -342,11 +343,11 @@
         const ayer = new Date(ahora);
         ayer.setDate(ayer.getDate() - 1);
 
-        document.getElementById('fecha-inicio').value = formatFechaInput(ayer);
-        document.getElementById('fecha-fin').value = formatFechaInput(ahora);
-        document.getElementById('fecha-fin').max = formatFechaInput(ahora);
-
         const inputInicio = document.getElementById('fecha-inicio');
+        const inputFin = document.getElementById('fecha-fin');
+        if (inputInicio) inputInicio.value = formatFechaInput(ayer);
+        if (inputFin) { inputFin.value = formatFechaInput(ahora); inputFin.max = formatFechaInput(ahora); }
+
         if (inputInicio && inputInicio.dataset.wired !== 'true') {
             inputInicio.dataset.wired = 'true';
             inputInicio.addEventListener('change', actualizarLimiteFechaFin);
@@ -355,19 +356,22 @@
     }
 
     function actualizarLimiteFechaFin() {
-        const inicioStr = document.getElementById('fecha-inicio').value;
+        const elInicio = document.getElementById('fecha-inicio');
+        const elFin = document.getElementById('fecha-fin');
+        if (!elInicio || !elFin) return;
+        const inicioStr = elInicio.value;
         if (!inicioStr) return;
         const [y, m, d] = inicioStr.split('-').map(Number);
         const maxFin = new Date(y, m - 1, d + MAX_DIAS - 1);
         const hoy = new Date();
         hoy.setHours(0, 0, 0, 0);
         const limFin = maxFin < hoy ? maxFin : hoy;
-        document.getElementById('fecha-fin').min = inicioStr;
-        document.getElementById('fecha-fin').max = formatFechaInput(limFin);
+        elFin.min = inicioStr;
+        elFin.max = formatFechaInput(limFin);
         // Si la fecha fin actual queda fuera del rango, la restablece
-        const finActual = document.getElementById('fecha-fin').value;
+        const finActual = elFin.value;
         if (!finActual || new Date(finActual + 'T00:00:00') < new Date(inicioStr + 'T00:00:00')) {
-            document.getElementById('fecha-fin').value = inicioStr;
+            elFin.value = inicioStr;
         }
     }
 
@@ -384,10 +388,18 @@
     // ---------------- Consulta ----------------
 
     async function consultar() {
-        const fechaInicio = document.getElementById('fecha-inicio').value;
-        const horaInicio = document.getElementById('hora-inicio').value;
-        const fechaFin = document.getElementById('fecha-fin').value;
-        const horaFin = document.getElementById('hora-fin').value;
+        const elFechaInicio = document.getElementById('fecha-inicio');
+        const elHoraInicio = document.getElementById('hora-inicio');
+        const elFechaFin = document.getElementById('fecha-fin');
+        const elHoraFin = document.getElementById('hora-fin');
+        if (!elFechaInicio || !elHoraInicio || !elFechaFin || !elHoraFin) {
+            alert('No se pudo leer el formulario. Recarga la pagina e intenta de nuevo.');
+            return;
+        }
+        const fechaInicio = elFechaInicio.value;
+        const horaInicio = elHoraInicio.value;
+        const fechaFin = elFechaFin.value;
+        const horaFin = elHoraFin.value;
 
         if (!fechaInicio || !fechaFin) { alert('Selecciona las fechas de consulta.'); return; }
 
@@ -406,8 +418,7 @@
         }
 
         const btn = document.getElementById('btn-consultar');
-        btn.disabled = true;
-        btn.innerText = '\u23F3 Consultando...';
+        if (btn) { btn.disabled = true; btn.innerText = '\u23F3 Consultando...'; }
         mostrarEstadoTabla('cargando');
 
         try {
@@ -463,8 +474,7 @@
             console.error(e);
             mostrarEstadoTabla('error', 'Error al consultar la API: ' + (e && e.message ? e.message : e));
         } finally {
-            btn.disabled = false;
-            btn.innerText = '🔍 Consultar';
+            if (btn) { btn.disabled = false; btn.innerText = '🔍 Consultar'; }
         }
     }
 
@@ -478,7 +488,8 @@
 
         // 2) Si hay texto escrito en el campo Placa (aunque no se haya hecho clic en la
         // lista), se respeta igual: se filtra el catalogo ya cargado por ese texto.
-        const textoPlaca = document.getElementById('filtro-placa').value.trim().toUpperCase();
+        const elPlacaTexto = document.getElementById('filtro-placa');
+        const textoPlaca = elPlacaTexto ? elPlacaTexto.value.trim().toUpperCase() : '';
         if (textoPlaca && dispositivosGlobal.length > 0) {
             const coincidencias = dispositivosGlobal.filter(function (d) {
                 return d.name.toUpperCase().includes(textoPlaca);
@@ -929,12 +940,15 @@
 
         return new Promise(function (resolve) {
             window._resolverModalRelevo = resolve;
-            document.getElementById('modal-relevo-overlay').style.display = 'flex';
+            const overlay = document.getElementById('modal-relevo-overlay');
+            if (overlay) overlay.style.display = 'flex';
+            else resolve(true); // si el modal no existe, no bloquear el flujo
         });
     }
 
     function responderModalRelevo(mostrar) {
-        document.getElementById('modal-relevo-overlay').style.display = 'none';
+        const overlay = document.getElementById('modal-relevo-overlay');
+        if (overlay) overlay.style.display = 'none';
         if (window._resolverModalRelevo) {
             window._resolverModalRelevo(mostrar);
             window._resolverModalRelevo = null;
@@ -972,6 +986,7 @@
 
     function mostrarModalAsociar() {
         const contenedor = document.getElementById('lista-asociar-contenido');
+        if (!contenedor) return Promise.resolve();
         contenedor.innerHTML = '';
         _decisionesAsociar = {};
 
@@ -981,12 +996,16 @@
             contenedor.appendChild(crearItemAsociar(grupoSC));
         });
 
-        document.getElementById('vista-lista-asociar').style.display = 'block';
-        document.getElementById('vista-resumen-asociar').style.display = 'none';
+        const vistaLista = document.getElementById('vista-lista-asociar');
+        const vistaResumen = document.getElementById('vista-resumen-asociar');
+        if (vistaLista) vistaLista.style.display = 'block';
+        if (vistaResumen) vistaResumen.style.display = 'none';
 
         return new Promise(function (resolve) {
             window._resolverModalAsociar = resolve;
-            document.getElementById('modal-asociar-overlay').style.display = 'flex';
+            const overlay = document.getElementById('modal-asociar-overlay');
+            if (overlay) overlay.style.display = 'flex';
+            else resolve(); // si el modal no existe, no bloquear el flujo
         });
     }
 
@@ -1125,6 +1144,7 @@
 
     function verResumenAsociar() {
         const cont = document.getElementById('resumen-asociar-contenido');
+        if (!cont) return;
         cont.innerHTML = '';
 
         let hayCambios = false;
@@ -1148,13 +1168,17 @@
             cont.appendChild(aviso);
         }
 
-        document.getElementById('vista-lista-asociar').style.display = 'none';
-        document.getElementById('vista-resumen-asociar').style.display = 'block';
+        const vistaLista2 = document.getElementById('vista-lista-asociar');
+        const vistaResumen2 = document.getElementById('vista-resumen-asociar');
+        if (vistaLista2) vistaLista2.style.display = 'none';
+        if (vistaResumen2) vistaResumen2.style.display = 'block';
     }
 
     function volverAListaAsociar() {
-        document.getElementById('vista-lista-asociar').style.display = 'block';
-        document.getElementById('vista-resumen-asociar').style.display = 'none';
+        const vistaLista = document.getElementById('vista-lista-asociar');
+        const vistaResumen = document.getElementById('vista-resumen-asociar');
+        if (vistaLista) vistaLista.style.display = 'block';
+        if (vistaResumen) vistaResumen.style.display = 'none';
     }
 
     function aplicarResumenAsociar() {
@@ -1199,7 +1223,8 @@
     }
 
     function cerrarModalAsociar() {
-        document.getElementById('modal-asociar-overlay').style.display = 'none';
+        const overlay = document.getElementById('modal-asociar-overlay');
+        if (overlay) overlay.style.display = 'none';
         if (window._resolverModalAsociar) {
             window._resolverModalAsociar();
             window._resolverModalAsociar = null;
@@ -1211,9 +1236,12 @@
     // ---------------- Filtros y orden ----------------
 
     function filtrarDatos(lista) {
-        const fFlota = document.getElementById('filtro-flota').value;
-        const fCond = document.getElementById('filtro-conductor').value.trim().toUpperCase();
-        const fPlaca = document.getElementById('filtro-placa').value.trim().toUpperCase();
+        const elFlota = document.getElementById('filtro-flota');
+        const elCond = document.getElementById('filtro-conductor');
+        const elPlaca = document.getElementById('filtro-placa');
+        const fFlota = elFlota ? elFlota.value : 'TODOS';
+        const fCond = elCond ? elCond.value.trim().toUpperCase() : '';
+        const fPlaca = elPlaca ? elPlaca.value.trim().toUpperCase() : '';
 
         return lista.filter(function(c) {
             const pasaFlota = fFlota === 'TODOS' || c.flota === fFlota;
@@ -1318,18 +1346,20 @@
 
     function toggleMenuExportar() {
         const lista = document.getElementById('combo-exportar-lista');
-        lista.classList.toggle('open');
+        if (lista) lista.classList.toggle('open');
     }
 
     document.addEventListener('click', function (e) {
         const combo = document.getElementById('combo-exportar');
-        if (combo && !combo.contains(e.target)) {
-            document.getElementById('combo-exportar-lista').classList.remove('open');
+        const listaExp = document.getElementById('combo-exportar-lista');
+        if (combo && listaExp && !combo.contains(e.target)) {
+            listaExp.classList.remove('open');
         }
     });
 
     function exportarExcel(modo) {
-        document.getElementById('combo-exportar-lista').classList.remove('open');
+        const comboLista = document.getElementById('combo-exportar-lista');
+        if (comboLista) comboLista.classList.remove('open');
 
         const datos = filtrarDatos(conductoresData).concat(mostrarSC ? filtrarDatos(scData) : []);
         if (datos.length === 0) { alert('No hay datos para exportar. Consulta primero.'); return; }
@@ -1396,11 +1426,12 @@
         anchos.forEach(function (w, i) { ws.getColumn(i + 1).width = w; });
 
         // --- Bloque de filtros aplicados (contexto de la consulta), con formato de "caja" ---
-        const fFlota = document.getElementById('filtro-flota').value;
-        const fConductorTxt = document.getElementById('filtro-conductor').value.trim();
-        const fPlacaTxt = document.getElementById('filtro-placa').value.trim();
-        const rangoTxt = document.getElementById('fecha-inicio').value + ' ' + document.getElementById('hora-inicio').value +
-            '  a  ' + document.getElementById('fecha-fin').value + ' ' + document.getElementById('hora-fin').value;
+        function valOr(id, def) { const el = document.getElementById(id); return el ? el.value : (def || ''); }
+        const fFlota = valOr('filtro-flota', 'TODOS');
+        const fConductorTxt = valOr('filtro-conductor').trim();
+        const fPlacaTxt = valOr('filtro-placa').trim();
+        const rangoTxt = valOr('fecha-inicio') + ' ' + valOr('hora-inicio') +
+            '  a  ' + valOr('fecha-fin') + ' ' + valOr('hora-fin');
 
         function estiloBoxInfo(cell, esTitulo) {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEDF3FB' } };
@@ -1538,6 +1569,7 @@
 
     function renderizarTabla() {
         const tbody = document.getElementById('tbody-principal');
+        if (!tbody) return;
         tbody.innerHTML = '';
 
         var lista = filtrarDatos(conductoresData);
@@ -1661,13 +1693,14 @@
         const totalRalenti = lista.reduce(function(s, c) { return s + c.totalRalenti; }, 0);
         const totalDistancia = lista.reduce(function(s, c) { return s + c.totalDistancia; }, 0);
 
-        document.getElementById('kpi-conductores').innerText = lista.length;
-        document.getElementById('kpi-sesiones').innerText = totalUnidadesConMovimiento;
-        document.getElementById('kpi-conduccion').innerText = formatHoras(totalConduccion);
-        document.getElementById('kpi-detenido').innerText = formatHoras(totalDetenido);
-        document.getElementById('kpi-ralenti').innerText = formatHoras(totalRalenti);
-        document.getElementById('kpi-distancia').innerText = totalDistancia.toFixed(0) + ' km';
-        document.getElementById('kpi-sc').innerText = listaSC.length;
+        function setTxt(id, val) { const el = document.getElementById(id); if (el) el.innerText = val; }
+        setTxt('kpi-conductores', lista.length);
+        setTxt('kpi-sesiones', totalUnidadesConMovimiento);
+        setTxt('kpi-conduccion', formatHoras(totalConduccion));
+        setTxt('kpi-detenido', formatHoras(totalDetenido));
+        setTxt('kpi-ralenti', formatHoras(totalRalenti));
+        setTxt('kpi-distancia', totalDistancia.toFixed(0) + ' km');
+        setTxt('kpi-sc', listaSC.length);
     }
 
     // ---------------- Utilidades ----------------
@@ -1697,6 +1730,7 @@
 
     function mostrarEstadoTabla(tipo, mensaje) {
         const tbody = document.getElementById('tbody-principal');
+        if (!tbody) return;
         if (tipo === 'cargando') {
             tbody.innerHTML =
                 '<tr><td colspan="9" class="estado-tabla">' +
