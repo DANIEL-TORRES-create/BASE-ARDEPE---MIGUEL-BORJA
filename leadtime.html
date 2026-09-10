@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=40">
+    <link rel="stylesheet" href="leadtime.css?v=42">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -918,8 +918,13 @@ function fusionarEventosRuido(eventosOrdenados) {
         const gapMin = (actual.inicio - prev.fin) / 60000;
         const dist = distanciaMetros(prev.lat, prev.lon, actual.lat, actual.lon);
         const mismoLugar = (prev.zonaNombre === actual.zonaNombre) || (dist < FUSION_DISTANCIA_M);
-        if (mismoLugar && gapMin >= 0 && gapMin < FUSION_TIEMPO_MIN) {
-            prev.fin = actual.fin;
+        // gapMin NEGATIVO significa que el evento actual empieza ANTES de que termine el
+        // anterior (se superponen en el tiempo) -- mismo camion, misma zona, pero
+        // MyGeotab genero 2 registros que se cruzan (ej. hipo de señal GPS a mitad de una
+        // sola estadia real). Tambien se fusiona en ese caso, no solo cuando hay un hueco
+        // chico entre ambos.
+        if (mismoLugar && gapMin < FUSION_TIEMPO_MIN) {
+            prev.fin = actual.fin > prev.fin ? actual.fin : prev.fin;
             if (!prev.driverId && actual.driverId) prev.driverId = actual.driverId;
         } else {
             resultado.push(Object.assign({}, actual));
@@ -1096,7 +1101,18 @@ async function resolverEstadosEnVivo(rondas, toDate) {
         if (!info) { r.estadoVivo = 'DESCONOCIDO'; return; }
 
         if (info.isDriving) {
-            r.estadoVivo = 'EN_RUTA';
+            // isDriving puede quedar "true" por un desfase de segundos/minutos entre que
+            // el camion se detuvo de verdad y que MyGeotab actualiza ese flag. Si las
+            // coordenadas YA caen dentro de una zona CD (chequeo estricto, sin tolerancia),
+            // se trata como "recien llegando" en vez de confiar ciegamente en isDriving.
+            const zonaPeseAIsDriving = resolverZonaEstricta(info.latitude, info.longitude);
+            if (zonaPeseAIsDriving) {
+                r.estadoVivo = 'EN_CD';
+                r.cdActualVivo = zonaPeseAIsDriving.name;
+                r.duracionEstadoVivo = 0; // isDriving aun no se actualizo: se asume que recien llego
+            } else {
+                r.estadoVivo = 'EN_RUTA';
+            }
         } else {
             const zona = resolverZonaEstricta(info.latitude, info.longitude);
             if (zona) {
@@ -2204,6 +2220,24 @@ async function abrirModalMapa(rIndex) {
             // Icono de camion en la ultima posicion GPS conocida, si el viaje sigue
             // EN RUTA o DETENIDO EN RUTA (en vivo) -- no movimiento en vivo, solo el ultimo dato.
             if (esEnMovimientoVivo) {
+                // Tramo final ABIERTO: el bucle de arriba solo conecta paradas YA
+                // confirmadas entre si -- un viaje en curso no tiene "parada siguiente"
+                // todavia, asi que ese tramo final nunca se dibujaba. Se traza aparte,
+                // desde la ultima parada confirmada hasta el ultimo punto GPS conocido.
+                if (puntosParaLinea.length > 0) {
+                    const ultimaParadaPunto = puntosParaLinea[puntosParaLinea.length - 1];
+                    const origenAbierto = ultimaParadaPunto.salida || ultimaParadaPunto.entrada;
+                    const ultimaParadaReal = r.paradas[r.paradas.length - 1];
+                    const tInicioAbierto = (ultimaParadaReal.salida || ultimaParadaReal.entrada).getTime();
+                    const tramoAbiertoLogs = logsOrdenados.filter(function (l) { return new Date(l.dateTime).getTime() >= tInicioAbierto; });
+                    if (origenAbierto && tramoAbiertoLogs.length > 0) {
+                        const puntosAbierto = [[origenAbierto.lat, origenAbierto.lon]];
+                        tramoAbiertoLogs.forEach(function (l) { puntosAbierto.push([l.latitude, l.longitude]); });
+                        const capaAbierta = L.polyline(puntosAbierto, { color: COLOR_RUTA, weight: 3, opacity: 0.85, dashArray: '2, 8' }).addTo(mapaLeaflet);
+                        capasParaEncuadre.push(capaAbierta);
+                    }
+                }
+
                 const ultimoPunto = logsOrdenados[logsOrdenados.length - 1];
                 const iconoCamion = L.divIcon({ html: '\uD83D\uDE9B', className: 'icono-camion-mapa', iconSize: [28, 28], iconAnchor: [14, 14] });
                 const marcadorCamion = L.marker([ultimoPunto.latitude, ultimoPunto.longitude], { icon: iconoCamion }).addTo(mapaLeaflet);
