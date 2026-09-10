@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=43">
+    <link rel="stylesheet" href="leadtime.css?v=45">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -104,7 +104,8 @@
                 </div>
             </div>
 
-            <div class="field-group">
+            <div class="field-group" style="flex-direction: column; align-items: flex-end; gap: 4px;">
+                <div class="contador-unidades" id="contador-unidades">0 unidades</div>
                 <div class="combo-exportar" id="combo-exportar">
                     <button class="btn btn-ghost" onclick="event.stopPropagation(); LT_toggleMenuExportar()">&#128190; Exportar Excel</button>
                     <div class="combo-exportar-lista" id="combo-exportar-lista">
@@ -1231,20 +1232,9 @@ function mostrarEstadoVacio(tbodyId, colspan, mensaje, diagnostico) {
         tbody.innerHTML = '<tr><td colspan="' + colspan + '" class="estado-tabla">Configura el rango de fechas y presiona <b>Consultar</b>.</td></tr>';
         return;
     }
+    // El cuadro de diagnostico tecnico se quito por completo -- nunca aporta lo
+    // suficiente al usuario final como para justificar mostrarlo, en ningun caso.
     let html = '<tr><td colspan="' + colspan + '" class="estado-tabla">' + esc(mensaje);
-    // El cuadro de diagnostico tecnico solo aporta valor si SI hubo eventos pero no se
-    // pudieron ubicar en ninguna zona (posible problema real de datos/geocercas). Si
-    // simplemente no hay NINGUN evento (la placa no tuvo actividad en el periodo), ese
-    // detalle no ayuda -- se omite para no confundir con un mensaje tecnico sin sentido.
-    if (diagnostico && diagUltimaConsulta.totalEventos > 0) {
-        html += '<div class="diag-caja">' +
-            'Zonas CD cargadas: <b>' + zonasCD.length + '</b>' + (typeof errorZonasCD !== 'undefined' && errorZonasCD ? ' &mdash; <span style="color:#c0392b;">ERROR: ' + esc(errorZonasCD) + '</span>' : '') + '<br>' +
-            'Dispositivos consultados: <b>' + diagUltimaConsulta.dispositivosConsultados + '</b> &middot; ' +
-            'con eventos: <b>' + diagUltimaConsulta.dispositivosConEventos + '</b><br>' +
-            'Total eventos de la regla encontrados: <b>' + diagUltimaConsulta.totalEventos + '</b><br>' +
-            'Eventos que no cayeron dentro de ninguna zona CD: <b>' + diagUltimaConsulta.eventosSinZona + '</b>' +
-            '</div>';
-    }
     html += '</td></tr>';
     tbody.innerHTML = html;
 }
@@ -1392,10 +1382,16 @@ function toggleGrupoPlaca(dispId) {
     renderizarComportamiento();
 }
 
+function actualizarContadorUnidades(n) {
+    const el = document.getElementById('contador-unidades');
+    if (el) el.innerText = n + (n === 1 ? ' unidad' : ' unidades');
+}
+
 function renderizarComportamiento() {
     const lista = filtrarDatos(rondasData);
 
     if (lista.length === 0) {
+        actualizarContadorUnidades(0);
         // Si la API SI trajo datos (rondasData no esta vacio) pero el filtro actual
         // (ej. quitar una placa, sin volver a consultar) los deja en cero, el cuadro de
         // diagnostico tecnico (zonas cargadas, dispositivos consultados...) no aplica --
@@ -1415,6 +1411,7 @@ function renderizarComportamiento() {
     let grupos = agruparPorPlaca(lista);
     grupos.sort(function (a, b) { return (a.primeraSalida || 0) - (b.primeraSalida || 0); });
 
+    actualizarContadorUnidades(grupos.length);
     gruposActuales = grupos;
     rondasFiltradasActuales = [];
 
