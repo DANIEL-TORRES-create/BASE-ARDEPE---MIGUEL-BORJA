@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=37">
+    <link rel="stylesheet" href="leadtime.css?v=38">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -421,6 +421,19 @@ function resolverZonaPorCoord(lat, lon) {
     }
     if (mejor) console.log('[LeadTime] Sin zona: la mas cercana (por borde) fue', mejor.name, 'a', Math.round(mejorDist) + 'm (excede el radio de ' + RADIO_ZONA_METROS + 'm)');
 
+    return null;
+}
+
+// Version ESTRICTA (sin tolerancia de 200m) -- solo para el chequeo de estado EN VIVO
+// ("esta el camion DENTRO de la zona ahora mismo"). La tolerancia de RADIO_ZONA_METROS
+// tiene sentido para resolver eventos historicos (el GPS puede fallar justo en el
+// instante del cruce), pero NO para un estado en vivo: un camion que solo pasa por una
+// via a menos de 200m del borde de una zona no deberia marcarse como "adentro".
+function resolverZonaEstricta(lat, lon) {
+    if (lat == null || lon == null) return null;
+    for (let i = 0; i < zonasCD.length; i++) {
+        if (puntoEnPoligono(lat, lon, zonasCD[i].points)) return zonasCD[i];
+    }
     return null;
 }
 
@@ -1075,7 +1088,7 @@ async function resolverEstadosEnVivo(rondas, toDate) {
         if (info.isDriving) {
             r.estadoVivo = 'EN_RUTA';
         } else {
-            const zona = resolverZonaPorCoord(info.latitude, info.longitude);
+            const zona = resolverZonaEstricta(info.latitude, info.longitude);
             if (zona) {
                 r.estadoVivo = 'EN_CD';
                 r.cdActualVivo = zona.name;
