@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=35">
+    <link rel="stylesheet" href="leadtime.css?v=36">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -56,7 +56,7 @@
             <div class="field-group">
                 <div class="field">
                     <label class="field-label">Flota</label>
-                    <select id="filtro-flota" class="select-ctrl" onchange="filtrosCambiaron()">
+                    <select id="filtro-flota" class="select-ctrl" onchange="LT_filtrosCambiaron()">
                         <option value="TODOS">TODAS</option>
                         <option value="LOCAL">LOCAL</option>
                         <option value="PROVINCIA">PROVINCIA</option>
@@ -75,7 +75,7 @@
 
                 <div class="field">
                     <label class="field-label">Conductor</label>
-                    <input type="text" id="filtro-conductor" class="input-ctrl" placeholder="Nombre o usuario..." style="width:170px;" oninput="filtrosCambiaron()">
+                    <input type="text" id="filtro-conductor" class="input-ctrl" placeholder="Nombre o usuario..." style="width:170px;" oninput="LT_filtrosCambiaron()">
                 </div>
 
                 <div class="separator"></div>
@@ -100,16 +100,16 @@
 
                 <div class="field">
                     <label class="field-label">&nbsp;</label>
-                    <button class="btn btn-blue" id="btn-consultar" onclick="consultar()">🔍 Consultar</button>
+                    <button class="btn btn-blue" id="btn-consultar" onclick="LT_consultar()">🔍 Consultar</button>
                 </div>
             </div>
 
             <div class="field-group">
                 <div class="combo-exportar" id="combo-exportar">
-                    <button class="btn btn-ghost" onclick="event.stopPropagation(); toggleMenuExportar()">&#128190; Exportar Excel</button>
+                    <button class="btn btn-ghost" onclick="event.stopPropagation(); LT_toggleMenuExportar()">&#128190; Exportar Excel</button>
                     <div class="combo-exportar-lista" id="combo-exportar-lista">
-                        <div class="combo-exportar-item" onclick="exportarExcel('resumen')">Resumen</div>
-                        <div class="combo-exportar-item" onclick="exportarExcel('detalle')">Detalle</div>
+                        <div class="combo-exportar-item" onclick="LT_exportarExcel('resumen')">Resumen</div>
+                        <div class="combo-exportar-item" onclick="LT_exportarExcel('detalle')">Detalle</div>
                     </div>
                 </div>
             </div>
@@ -2350,13 +2350,13 @@ window.cambiarAgrupacion = cambiarAgrupacion;
 window.cambiarPestana = cambiarPestana;
 window.cerrarModalMapa = cerrarModalMapa;
 window.cerrarPanelViaje = cerrarPanelViaje;
-window.consultar = consultar;
-window.exportarExcel = exportarExcel;
-window.filtrosCambiaron = filtrosCambiaron;
+window.LT_consultar = consultar;
+window.LT_exportarExcel = exportarExcel;
+window.LT_filtrosCambiaron = filtrosCambiaron;
 window.invertirOrden = invertirOrden;
 window.quitarPlacaSeleccionada = quitarPlacaSeleccionada;
 window.toggleGrupoPlaca = toggleGrupoPlaca;
-window.toggleMenuExportar = toggleMenuExportar;
+window.LT_toggleMenuExportar = toggleMenuExportar;
 
 })();
 </script>
