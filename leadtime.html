@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=36">
+    <link rel="stylesheet" href="leadtime.css?v=37">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1344,7 +1344,17 @@ function renderizarComportamiento() {
     const lista = filtrarDatos(rondasData);
 
     if (lista.length === 0) {
-        mostrarEstadoVacio('tbody-resumen', 11, 'No hay viajes para los filtros aplicados.', true);
+        // Si la API SI trajo datos (rondasData no esta vacio) pero el filtro actual
+        // (ej. quitar una placa, sin volver a consultar) los deja en cero, el cuadro de
+        // diagnostico tecnico (zonas cargadas, dispositivos consultados...) no aplica --
+        // corresponde a la consulta original, no a este filtro. Se muestra un mensaje
+        // simple en su lugar. El diagnostico completo se reserva para cuando la API
+        // realmente no trajo nada.
+        if (rondasData.length > 0) {
+            mostrarEstadoVacio('tbody-resumen', 11, 'Sin datos para el filtro actual. Ajusta los filtros o presiona Consultar de nuevo para buscar otra placa.', false);
+        } else {
+            mostrarEstadoVacio('tbody-resumen', 11, 'No hay viajes para los filtros aplicados.', true);
+        }
         gruposActuales = [];
         rondasFiltradasActuales = [];
         return;
