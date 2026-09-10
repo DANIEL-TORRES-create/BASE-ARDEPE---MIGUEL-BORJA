@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="leadtime.css?v=42">
+    <link rel="stylesheet" href="leadtime.css?v=43">
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -983,6 +983,15 @@ async function procesarDispositivo(disp, fromDate, toDate) {
 
     console.log('[LeadTime]', disp.name, '- DESPUES de fusion (' + eventosResueltos.length + '):',
         eventosResueltos.map(function (e) { return e.zonaNombre + ' [' + e.inicio.toLocaleString('es-PE') + ' -> ' + e.fin.toLocaleString('es-PE') + ']'; }));
+
+    // Filtro de duracion minima -- PASO SEPARADO de la fusion de ruido de arriba, no se
+    // mezcla con esa logica. Elimina eventos que solo fueron un roce/paso cercano al
+    // borde de la zona (duracion practicamente cero), no una parada real.
+    const DURACION_MINIMA_MIN = 5;
+    eventosResueltos = eventosResueltos.filter(function (e) {
+        const durMin = (e.fin - e.inicio) / 60000;
+        return durMin >= DURACION_MINIMA_MIN;
+    });
 
     return construirRondas(eventosResueltos, disp, flota, logs);
 }
@@ -2052,6 +2061,7 @@ const COLOR_RUTA = '#2c6cb0';
 const COLOR_RETORNO = '#d97706';
 const COLOR_PLANTA = '#002d72';
 const COLOR_CD = '#16a34a';
+const COLOR_TRAMO_VIVO = '#dc2626'; // rojo -- tramo abierto "en vivo" (aun sin llegar a un punto confirmado)
 
 async function abrirModalMapa(rIndex) {
     const r = rondasFiltradasActuales[rIndex];
@@ -2233,7 +2243,7 @@ async function abrirModalMapa(rIndex) {
                     if (origenAbierto && tramoAbiertoLogs.length > 0) {
                         const puntosAbierto = [[origenAbierto.lat, origenAbierto.lon]];
                         tramoAbiertoLogs.forEach(function (l) { puntosAbierto.push([l.latitude, l.longitude]); });
-                        const capaAbierta = L.polyline(puntosAbierto, { color: COLOR_RUTA, weight: 3, opacity: 0.85, dashArray: '2, 8' }).addTo(mapaLeaflet);
+                        const capaAbierta = L.polyline(puntosAbierto, { color: COLOR_TRAMO_VIVO, weight: 3, opacity: 0.9, dashArray: '2, 8', className: 'linea-ruta-viva' }).addTo(mapaLeaflet);
                         capasParaEncuadre.push(capaAbierta);
                     }
                 }
