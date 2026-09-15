@@ -248,11 +248,39 @@ const RULE_ID = 'aDW9ljhg6lEuypta-ka9g1g'; // regla "(SEVILLANO) LEAD TIME POR C
 const ZONE_TYPE_ID = 'b400';               // tipo de zona = Centros de Distribucion (CD)
 const GRUPOS = { LOCAL: 'b2798', PROVINCIA: 'b279A' };
 const PLANTA_NOMBRE = 'PLANTA PUCUSANA';   // punto de anclaje de las rondas (normalizado en mayus)
-const MAX_DIAS = 7;
-const PAUSA_MS = 300;
-const REINTENTOS = 3;
-const BLOQUE_DISPOSITIVOS = 12;
+let MAX_DIAS = 30;               // rango maximo de dias por consulta (ampliado de 7 a 30 -- ver ajustarParametrosSegunRango)
+let PAUSA_MS = 300;              // pausa entre bloques de dispositivos -- se ajusta dinamicamente segun el rango de dias (ver mas abajo)
+let REINTENTOS = 3;              // reintentos por llamada a la API -- idem
+let PAUSA_BACKOFF_MS = 400;      // base del backoff progresivo entre reintentos (espera = PAUSA_BACKOFF_MS * intento)
+let PAUSA_RECALCULO_MS = 80;     // pausa entre recalculos de conduccion/detenido por viaje (recalcularConduccionRuta)
+let PAUSA_COMPLETADO_MS = 250;   // pausa entre busquedas hacia atras/adelante (viajes incompletos / sin retorno)
+let BLOQUE_DISPOSITIVOS = 12;    // cantidad de dispositivos consultados en paralelo por bloque -- idem
+const DURACION_MINIMA_MIN = 5;   // duracion minima (minutos) para que un evento cuente como parada real y no como ruido de GPS
 const HIST_STORAGE_KEY = 'ardepe_leadtime_historico_rutas_v1';
+
+// ---------------- Parametros dinamicos de carga ----------------
+// Mientras mas grande el rango de fechas consultado, mas "respiro" se le da a la API de
+// Geotab: menos dispositivos en paralelo por bloque, pausas mas largas entre bloques y
+// entre recalculos, y mas reintentos con backoff mas generoso. Los rangos cortos (<=7
+// dias, el uso normal hasta ahora) mantienen exactamente el comportamiento original, sin
+// ningun cambio de velocidad.
+function ajustarParametrosSegunRango(dias) {
+    let perfil;
+    if (dias <= 7) {
+        perfil = { bloque: 12, pausaMs: 300, reintentos: 3, backoffMs: 400, pausaRecalculo: 80, pausaCompletado: 250 };
+    } else if (dias <= 15) {
+        perfil = { bloque: 8, pausaMs: 600, reintentos: 4, backoffMs: 600, pausaRecalculo: 150, pausaCompletado: 400 };
+    } else {
+        perfil = { bloque: 5, pausaMs: 1000, reintentos: 4, backoffMs: 800, pausaRecalculo: 250, pausaCompletado: 600 };
+    }
+    BLOQUE_DISPOSITIVOS = perfil.bloque;
+    PAUSA_MS = perfil.pausaMs;
+    REINTENTOS = perfil.reintentos;
+    PAUSA_BACKOFF_MS = perfil.backoffMs;
+    PAUSA_RECALCULO_MS = perfil.pausaRecalculo;
+    PAUSA_COMPLETADO_MS = perfil.pausaCompletado;
+    console.log('[LeadTime] Parametros de carga ajustados para ' + dias.toFixed(1) + ' dia(s):', perfil);
+}
 
 // ---------------- Estado global ----------------
 
@@ -322,6 +350,19 @@ function duracionAHoras(valor) {
     if (str.indexOf(':') !== -1) return timeSpanAHoras(str);
     const n = parseFloat(str);
     return isNaN(n) ? 0 : n;
+}
+
+// Filtra eventos ya resueltos (con .inicio/.fin) que duraron menos que DURACION_MINIMA_MIN
+// -- se consideran "ruido" de GPS (roce/paso cerca del borde de una geocerca, no una
+// parada real) y no deben generar una parada en ninguna ronda. Centralizado aqui para que
+// se aplique siempre igual sin importar por cual camino se resolvieron los eventos
+// (consulta principal, busqueda hacia atras de viajes incompletos, o busqueda hacia
+// adelante de viajes sin retorno).
+function filtrarRuidoPorDuracion(eventosResueltos) {
+    return eventosResueltos.filter(function (e) {
+        const durMin = (e.fin - e.inicio) / 60000;
+        return durMin >= DURACION_MINIMA_MIN;
+    });
 }
 
 function serialValido(serial) {
@@ -779,6 +820,11 @@ async function consultar() {
     const dias = (new Date(toDate) - new Date(fromDate)) / 86400000;
     if (dias > MAX_DIAS + 0.01) { alert('El rango maximo permitido es ' + MAX_DIAS + ' dias.'); return; }
 
+    // Ajusta bloque de dispositivos, pausas y reintentos segun cuantos dias se van a
+    // consultar -- rangos largos consultan menos unidades en paralelo y esperan mas entre
+    // llamadas, para no saturar la API de Geotab.
+    ajustarParametrosSegunRango(dias);
+
     const btn = document.getElementById('btn-consultar');
     if (btn) { btn.disabled = true; btn.innerText = '\u23F3 Consultando...'; }
     diagUltimaConsulta = { dispositivosConsultados: 0, dispositivosConEventos: 0, totalEventos: 0, eventosSinZona: 0, eventosSinGPS: 0 };
@@ -860,7 +906,7 @@ async function obtenerEventosConReintento(dispositivo, fromDate, toDate) {
             return eventos || [];
         } catch (e) {
             if (i === REINTENTOS) return [];
-            await sleep(400 * i);
+            await sleep(PAUSA_BACKOFF_MS * i);
         }
     }
     return [];
@@ -876,7 +922,7 @@ async function obtenerLogRecordConReintento(deviceId, fromDate, toDate) {
             return logs || [];
         } catch (e) {
             if (i === REINTENTOS) return [];
-            await sleep(400 * i);
+            await sleep(PAUSA_BACKOFF_MS * i);
         }
     }
     return [];
@@ -988,11 +1034,7 @@ async function procesarDispositivo(disp, fromDate, toDate) {
     // Filtro de duracion minima -- PASO SEPARADO de la fusion de ruido de arriba, no se
     // mezcla con esa logica. Elimina eventos que solo fueron un roce/paso cercano al
     // borde de la zona (duracion practicamente cero), no una parada real.
-    const DURACION_MINIMA_MIN = 5;
-    eventosResueltos = eventosResueltos.filter(function (e) {
-        const durMin = (e.fin - e.inicio) / 60000;
-        return durMin >= DURACION_MINIMA_MIN;
-    });
+    eventosResueltos = filtrarRuidoPorDuracion(eventosResueltos);
 
     return construirRondas(eventosResueltos, disp, flota, logs);
 }
@@ -1554,7 +1596,7 @@ async function recalcularConduccionRuta(rondas) {
         } catch (e) {
             console.error('Error recalculando conduccion/detenido para', r.disp.name, e);
         }
-        if (i < rondas.length - 1) await sleep(80);
+        if (i < rondas.length - 1) await sleep(PAUSA_RECALCULO_MS);
     }
 }
 
@@ -1888,6 +1930,11 @@ async function buscarEventosAnteriores(disp, antesDeFecha) {
 
     resueltos = fusionarEventosRuido(resueltos.map(function (e) { return { inicio: e.inicio, fin: e.fin, lat: e.lat, lon: e.lon, zonaNombre: e.zonaNombre, driverId: e.driverId }; }));
 
+    // Mismo filtro de ruido por duracion minima que la consulta principal (procesarDispositivo)
+    // -- sin esto, un fragmento de <5 min encontrado en la busqueda hacia atras se colaba
+    // como una "parada" real (ej. CD con Entrada=Salida y Detenido 0h 0m).
+    resueltos = filtrarRuidoPorDuracion(resueltos);
+
     return { eventos: resueltos, logsUsados: logs };
 }
 
@@ -1941,7 +1988,7 @@ async function completarViajesIncompletos(rondas) {
         } catch (e) {
             console.error('Error buscando eventos anteriores para', r.disp.name, e);
         }
-        if (i < incompletas.length - 1) await sleep(250);
+        if (i < incompletas.length - 1) await sleep(PAUSA_COMPLETADO_MS);
     }
 }
 
@@ -1964,7 +2011,7 @@ async function buscarCierreHaciaAdelante(ronda, limiteFinal) {
 
         const logs = await obtenerLogRecordConReintento(ronda.disp.id, new Date(cursorTiempo.getTime() - MARGEN_LOGRECORD_HORAS * 3600000).toISOString(), new Date(limiteFinal.getTime() + MARGEN_LOGRECORD_HORAS * 3600000).toISOString());
 
-        const resueltos = eventosVentana.map(function (ev) {
+        const resueltosCrudos = eventosVentana.map(function (ev) {
             const inicio = new Date(ev.activeFrom);
             const horas = duracionAHoras(ev.duration);
             const fin = new Date(inicio.getTime() + horas * 3600000);
@@ -1976,7 +2023,18 @@ async function buscarCierreHaciaAdelante(ronda, limiteFinal) {
         }).filter(function (e) { return e.zonaNombre && e.inicio > cursorTiempo; })
           .sort(function (a, b) { return a.inicio - b.inicio; });
 
-        if (resueltos.length === 0) break;
+        if (resueltosCrudos.length === 0) break;
+
+        // Mismo filtro de ruido por duracion minima que el resto del flujo. Si TODOS los
+        // eventos de esta ventana son ruido (< 5 min), no se descarta la busqueda: se
+        // avanza el cursor hasta el fin del ultimo evento crudo visto (para no volver a
+        // traer la misma ventana en el siguiente ciclo del while) y se sigue buscando.
+        const resueltos = filtrarRuidoPorDuracion(resueltosCrudos);
+        if (resueltos.length === 0) {
+            const ultimoCrudo = resueltosCrudos[resueltosCrudos.length - 1];
+            cursorTiempo = ultimoCrudo.fin > cursorTiempo ? ultimoCrudo.fin : new Date(cursorTiempo.getTime() + 60000);
+            continue;
+        }
 
         const siguiente = resueltos[0];
         const anterior = ronda.paradas[ronda.paradas.length - 1];
@@ -2043,7 +2101,7 @@ async function completarViajesSinRetorno(rondas, toDate) {
         } catch (e) {
             console.error('Error buscando cierre hacia adelante para', abiertas[i].disp.name, e);
         }
-        if (i < abiertas.length - 1) await sleep(250);
+        if (i < abiertas.length - 1) await sleep(PAUSA_COMPLETADO_MS);
     }
 }
 
