@@ -248,7 +248,7 @@ const RULE_ID = 'aDW9ljhg6lEuypta-ka9g1g'; // regla "(SEVILLANO) LEAD TIME POR C
 const ZONE_TYPE_ID = 'b400';               // tipo de zona = Centros de Distribucion (CD)
 const GRUPOS = { LOCAL: 'b2798', PROVINCIA: 'b279A' };
 const PLANTA_NOMBRE = 'PLANTA PUCUSANA';   // punto de anclaje de las rondas (normalizado en mayus)
-let MAX_DIAS = 30;               // rango maximo de dias por consulta (ampliado de 7 a 30 -- ver ajustarParametrosSegunRango)
+let MAX_DIAS = 35;               // rango maximo de dias por consulta (ampliado de 7 a 30 -- ver ajustarParametrosSegunRango)
 let PAUSA_MS = 300;              // pausa entre bloques de dispositivos -- se ajusta dinamicamente segun el rango de dias (ver mas abajo)
 let REINTENTOS = 3;              // reintentos por llamada a la API -- idem
 let PAUSA_BACKOFF_MS = 400;      // base del backoff progresivo entre reintentos (espera = PAUSA_BACKOFF_MS * intento)
