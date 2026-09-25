@@ -1,0 +1,303 @@
+/* ==========================================================================
+   ARDEPE - Validacion de Transmision
+   TODO el estilo esta encerrado en #vtx-root y usa el prefijo "vtx-".
+   No hay reglas sobre html, body, table, .card, .btn, etc., para no
+   cruzarse con otros Add-Ins cargados en la misma pagina de MyGeotab.
+   ========================================================================== */
+
+#vtx-root {
+    --vtx-rojo: #c00000;
+    --vtx-azul: #25477b;
+    --vtx-azul-osc: #1b3560;
+    --vtx-franja: #d3dae5;
+    --vtx-borde: #b7c3d6;
+    --vtx-texto: #1a1a1a;
+    --vtx-gris: #556070;
+    font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+    color: var(--vtx-texto);
+    background: #eef1f6;
+    padding: 14px;
+    box-sizing: border-box;
+    min-height: 100%;
+}
+#vtx-root *, #vtx-root *::before, #vtx-root *::after { box-sizing: border-box; }
+
+/* ---------- Tarjeta principal ---------- */
+#vtx-root .vtx-hoja {
+    background: #ffffff;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px -10px rgba(0, 0, 0, .25);
+    padding: 16px 20px 20px;
+    max-width: 1780px;
+    margin: 0 auto;
+    border-top: 6px solid var(--vtx-rojo);
+}
+
+/* ---------- Barra de consulta ---------- */
+#vtx-root .vtx-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+}
+#vtx-root .vtx-campos { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+#vtx-root .vtx-campo { display: flex; flex-direction: column; gap: 4px; }
+#vtx-root .vtx-etq {
+    font-size: 10px; font-weight: 800; color: var(--vtx-gris);
+    text-transform: uppercase; letter-spacing: .3px;
+}
+#vtx-root .vtx-fila-hora { display: flex; gap: 6px; }
+#vtx-root .vtx-ctrl {
+    font-family: inherit;
+    padding: 7px 9px;
+    border: 2px solid var(--vtx-rojo);
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--vtx-rojo);
+    background: #ffffff;
+    outline: none;
+    height: 36px;
+}
+#vtx-root .vtx-ctrl-hora { width: 92px; }
+#vtx-root .vtx-btn {
+    font-family: inherit;
+    height: 36px;
+    padding: 0 16px;
+    border-radius: 6px;
+    border: 2px solid var(--vtx-rojo);
+    font-size: 12.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    cursor: pointer;
+    background: var(--vtx-rojo);
+    color: #ffffff;
+}
+#vtx-root .vtx-btn:hover { background: #a00000; }
+#vtx-root .vtx-btn:disabled { opacity: .55; cursor: not-allowed; }
+#vtx-root .vtx-btn-sec { background: #ffffff; color: var(--vtx-rojo); }
+#vtx-root .vtx-btn-sec:hover { background: #fdecec; }
+
+#vtx-root .vtx-progreso { min-width: 260px; flex: 1 1 260px; max-width: 460px; }
+#vtx-root .vtx-progreso-txt { font-size: 12px; color: var(--vtx-gris); font-weight: 600; min-height: 16px; }
+#vtx-root .vtx-progreso-bar { height: 5px; background: #e5e9f0; border-radius: 4px; overflow: hidden; margin-top: 5px; }
+#vtx-root .vtx-progreso-fill { height: 100%; width: 0; background: var(--vtx-rojo); transition: width .2s ease; }
+
+/* ---------- Encabezado estilo hoja DETALLADO ---------- */
+#vtx-root .vtx-titulo {
+    background: var(--vtx-rojo);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 22px;
+    text-align: center;
+    padding: 6px 10px;
+    border: 2px solid #000000;
+    margin-bottom: 10px;
+}
+
+#vtx-root .vtx-cabecera {
+    display: grid;
+    grid-template-columns: minmax(300px, 1.2fr) minmax(320px, 1.6fr) minmax(160px, .6fr);
+    gap: 14px;
+    align-items: stretch;
+    margin-bottom: 14px;
+}
+@media (max-width: 1000px) {
+    #vtx-root .vtx-cabecera { grid-template-columns: 1fr; }
+}
+
+#vtx-root .vtx-kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 0; align-content: start; }
+#vtx-root .vtx-kv-lbl {
+    background: var(--vtx-rojo);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 13px;
+    text-align: center;
+    padding: 5px 12px;
+    border: 1px solid #000000;
+    white-space: nowrap;
+}
+#vtx-root .vtx-kv-val {
+    font-family: Arial, sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    padding: 5px 12px;
+    border: 1px solid #d0d0d0;
+    border-left: none;
+    display: flex;
+    align-items: center;
+}
+#vtx-root .vtx-kv-sep { grid-column: 1 / -1; height: 4px; }
+
+/* ---------- Segmentadores (igual a SlicerStyleDark1) ---------- */
+#vtx-root .vtx-slicers { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+#vtx-root .vtx-slicer {
+    border: 1px solid var(--vtx-azul);
+    border-radius: 3px;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+}
+#vtx-root .vtx-slicer-hd {
+    background: var(--vtx-azul-osc);
+    color: #ffffff;
+    font-size: 12.5px;
+    font-weight: 700;
+    padding: 6px 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+#vtx-root .vtx-slicer-clear {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, .6);
+    color: #ffffff;
+    border-radius: 3px;
+    font-size: 11px;
+    padding: 1px 6px;
+    cursor: pointer;
+    font-family: inherit;
+}
+#vtx-root .vtx-slicer-clear:disabled { opacity: .35; cursor: default; }
+#vtx-root .vtx-slicer-body { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px; }
+#vtx-root .vtx-slicer-item {
+    font-family: inherit;
+    border: 1px solid var(--vtx-azul);
+    background: #ffffff;
+    color: var(--vtx-azul-osc);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 6px;
+    border-radius: 2px;
+    cursor: pointer;
+    text-align: center;
+}
+#vtx-root .vtx-slicer-item.vtx-on { background: var(--vtx-azul); color: #ffffff; }
+#vtx-root .vtx-slicer-item:hover { filter: brightness(1.08); }
+
+/* ---------- Caja UNIDADES ---------- */
+#vtx-root .vtx-unidades {
+    border: 2px solid #000000;
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+}
+#vtx-root .vtx-unidades-lbl { font-size: 22px; font-weight: 700; padding: 6px; border-bottom: 2px solid #000000; }
+#vtx-root .vtx-unidades-num {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Arial, sans-serif;
+    font-weight: 700;
+    font-size: 40px;
+    padding: 10px;
+}
+
+/* ---------- Tabla (igual a PivotStyleMedium2) ---------- */
+#vtx-root .vtx-tabla-wrap {
+    overflow: auto;
+    max-height: 62vh;
+    border: 1px solid var(--vtx-borde);
+}
+#vtx-root .vtx-tabla {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: Arial, sans-serif;
+    font-size: 12.5px;
+}
+#vtx-root .vtx-tabla th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--vtx-azul);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 13px;
+    text-align: left;
+    padding: 7px 10px;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 2px solid var(--vtx-azul-osc);
+}
+#vtx-root .vtx-tabla td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--vtx-franja);
+    vertical-align: top;
+}
+#vtx-root .vtx-tabla tbody tr:nth-child(odd) td { background: var(--vtx-franja); }
+#vtx-root .vtx-tabla tbody tr:nth-child(even) td { background: #ffffff; }
+#vtx-root .vtx-tabla tbody tr:hover td { background: #fbe3e3; }
+#vtx-root .vtx-td-placa { font-weight: 700; white-space: nowrap; }
+#vtx-root .vtx-td-fecha { white-space: nowrap; }
+#vtx-root .vtx-td-dir { min-width: 320px; }
+#vtx-root .vtx-td-estado { white-space: nowrap; }
+#vtx-root .vtx-link { color: #0563c1; text-decoration: underline; white-space: nowrap; }
+#vtx-root .vtx-vacio { text-align: center; color: #8892a0; padding: 30px 10px; background: #ffffff !important; }
+#vtx-root .vtx-dentro { color: #0b6b2f; font-weight: 700; }
+
+/* ---------- Combo de placas (multi-seleccion) ---------- */
+#vtx-root .vtx-combo { position: relative; }
+#vtx-root .vtx-combo-chips {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+    min-width: 220px; max-width: 320px; min-height: 36px;
+    padding: 3px 6px; border: 2px solid var(--vtx-rojo); border-radius: 6px; background: #ffffff; cursor: text;
+}
+#vtx-root .vtx-combo-input {
+    border: none; outline: none; font-family: inherit; font-size: 13px; font-weight: 700;
+    color: var(--vtx-rojo); flex: 1; min-width: 80px; padding: 3px 2px; background: transparent;
+}
+#vtx-root .vtx-chip {
+    display: inline-flex; align-items: center; gap: 5px; background: #fdecec; color: var(--vtx-rojo);
+    font-size: 11px; font-weight: 800; padding: 3px 5px 3px 8px; border-radius: 20px; white-space: nowrap;
+}
+#vtx-root .vtx-chip-x {
+    display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px;
+    border-radius: 50%; background: var(--vtx-rojo); color: #ffffff; font-size: 11px; line-height: 1; cursor: pointer;
+}
+#vtx-root .vtx-combo-lista {
+    position: absolute; z-index: 60; top: calc(100% + 4px); left: 0; right: 0; max-height: 260px; overflow-y: auto;
+    background: #ffffff; border: 1px solid #d7dce3; border-radius: 6px; box-shadow: 0 10px 24px rgba(0, 0, 0, .15); display: none;
+}
+#vtx-root .vtx-combo-lista.vtx-open { display: block; }
+#vtx-root .vtx-combo-item {
+    padding: 7px 10px; font-size: 12.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid #f1f3f5;
+}
+#vtx-root .vtx-combo-item:hover { background: #fdecec; }
+#vtx-root .vtx-combo-check {
+    display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px;
+    border: 1.5px solid #c3ccd6; border-radius: 3px; font-size: 10px; color: #ffffff; flex-shrink: 0;
+}
+#vtx-root .vtx-combo-item.vtx-on .vtx-combo-check { background: var(--vtx-rojo); border-color: var(--vtx-rojo); }
+#vtx-root .vtx-combo-vacio { padding: 10px; font-size: 12px; color: #9aa4b2; font-style: italic; }
+
+/* ---------- Mensaje para enviar ---------- */
+#vtx-root .vtx-msg {
+    border: 1px solid #e2e8f0; border-left: 5px solid var(--vtx-rojo); border-radius: 6px;
+    background: #fbfbfc; padding: 10px 14px; margin-bottom: 14px; max-width: 520px;
+}
+#vtx-root .vtx-msg-hd {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    font-size: 11px; font-weight: 800; color: var(--vtx-gris); text-transform: uppercase; margin-bottom: 6px;
+}
+#vtx-root .vtx-btn-mini { height: 28px; padding: 0 10px; font-size: 11px; }
+#vtx-root .vtx-msg-txt {
+    margin: 0; font-family: 'Segoe UI', Calibri, Arial, sans-serif; font-size: 13.5px; line-height: 1.55;
+    white-space: pre-wrap; color: var(--vtx-texto);
+}
+
+/* ---------- Blindaje: anula estilos globales de otros Add-Ins (ej. "thead th", "tbody td", "table") ---------- */
+#vtx-root .vtx-tabla th, #vtx-root .vtx-tabla td {
+    text-transform: none; letter-spacing: normal; font-style: normal; box-shadow: none; line-height: 1.35;
+}
+#vtx-root .vtx-tabla { table-layout: auto; border-spacing: 0; margin: 0; }
+#vtx-root button, #vtx-root input, #vtx-root select { text-transform: none; letter-spacing: normal; box-shadow: none; margin: 0; }
+#vtx-root .vtx-btn { text-transform: uppercase; }
