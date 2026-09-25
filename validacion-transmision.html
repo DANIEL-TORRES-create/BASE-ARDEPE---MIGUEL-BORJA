@@ -94,6 +94,9 @@
     </div>
 
     <!-- Tabla igual a la tabla dinamica del DETALLADO -->
+    <!-- Placas retiradas del calculo (no se consideran en contadores, % ni Excel) -->
+    <div class="vtx-retiradas" id="vtx-retiradas"></div>
+
     <div class="vtx-tabla-wrap">
         <table class="vtx-tabla">
             <thead id="vtx-thead"></thead>
@@ -146,6 +149,7 @@ let vtxFilas = [];                 // resultado de la ultima consulta
 let vtxFechaConsulta = null;       // Date (UTC) de la consulta
 let vtxDispositivos = [];          // catalogo para el combo de placas
 let vtxPlacasSel = [];             // ids seleccionados en el combo
+let vtxRetiradas = [];             // ids retirados manualmente (no cuentan en calculos ni Excel)
 const vtxFiltro = { estatus: [], op: [] };
 let vtxOrden = { k: 'placa', dir: 1 };
 let vtxConsultando = false;
@@ -429,6 +433,7 @@ function vtxFiltradas() {
         if (vtxFiltro.estatus.length && vtxFiltro.estatus.indexOf(f.estatus) === -1) return false;
         if (vtxFiltro.op.length && vtxFiltro.op.indexOf(f.op) === -1) return false;
         if (vtxPlacasSel.length && vtxPlacasSel.indexOf(f.id) === -1) return false;
+        if (vtxRetiradas.indexOf(f.id) !== -1) return false;
         return true;
     }).sort(function (a, b) {
         let x = a[vtxOrden.k], y = b[vtxOrden.k];
@@ -443,6 +448,7 @@ function vtxBaseConteo() {
     return vtxFilas.filter(function (f) {
         if (vtxFiltro.op.length && vtxFiltro.op.indexOf(f.op) === -1) return false;
         if (vtxPlacasSel.length && vtxPlacasSel.indexOf(f.id) === -1) return false;
+        if (vtxRetiradas.indexOf(f.id) !== -1) return false;
         return true;
     });
 }
@@ -510,6 +516,14 @@ function vtxRender() {
     $('vtx-btn-copiar').disabled = !msg;
     $('vtx-btn-exportar').disabled = !hay || vtxConsultando;
 
+    // Placas retiradas
+    const ret = vtxFilas.filter(function (f) { return vtxRetiradas.indexOf(f.id) !== -1; });
+    $('vtx-retiradas').innerHTML = ret.length ?
+        '<span class="vtx-retiradas-lbl">Placas retiradas del cálculo (' + ret.length + '):</span>' +
+        ret.map(function (f) { return '<span class="vtx-chip">' + vtxEsc(f.placa) + '<span class="vtx-chip-x vtx-restaurar" data-id="' + vtxEsc(f.id) + '" title="Volver a considerar">&#8634;</span></span>'; }).join('') +
+        '<button type="button" class="vtx-btn vtx-btn-sec vtx-btn-mini" id="vtx-restaurar-todas">Restaurar todas</button>' : '';
+    $('vtx-retiradas').style.display = ret.length ? 'flex' : 'none';
+
     // Tabla
     $('vtx-thead').innerHTML = '<tr>' + VTX_COLS.map(function (col) {
         return '<th data-k="' + col[0] + '">' + col[1] + (vtxOrden.k === col[0] ? (vtxOrden.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
@@ -521,7 +535,7 @@ function vtxRender() {
     $('vtx-tbody').innerHTML = lista.map(function (f) {
         const dentro = f.estatus === 'DENTRO DE GEOCERCA';
         return '<tr>' +
-            '<td class="vtx-td-placa">' + vtxEsc(f.placa) + '</td>' +
+            '<td class="vtx-td-placa"><button type="button" class="vtx-quitar" data-id="' + vtxEsc(f.id) + '" title="Retirar esta placa del cálculo">&#10005;</button>' + vtxEsc(f.placa) + '</td>' +
             '<td>' + vtxEsc(f.conductor) + '</td>' +
             '<td class="vtx-td-fecha">' + vtxEsc(vtxFmtFechaHora(f.ultimoGps)) + '</td>' +
             '<td class="vtx-td-dir' + (dentro ? ' vtx-dentro' : '') + '">' + vtxEsc(f.lugar) + '</td>' +
@@ -624,7 +638,8 @@ async function vtxExportar() {
     }
     [['E4', filtroTxt('ESTATUS', vtxFiltro.estatus, 'TODOS')],
      ['E5', filtroTxt('FILTRO OPERACIÓN', vtxFiltro.op, 'TODAS')],
-     ['E6', 'PLACAS: ' + (vtxPlacasSel.length ? lista.map(function (f) { return f.placa; }).join(', ') : 'TODAS')]].forEach(function (p) {
+     ['E6', 'PLACAS: ' + (vtxPlacasSel.length ? lista.map(function (f) { return f.placa; }).join(', ') : 'TODAS')],
+     ['E7', 'PLACAS RETIRADAS: ' + (vtxRetiradas.length ? vtxFilas.filter(function (f) { return vtxRetiradas.indexOf(f.id) !== -1; }).map(function (f) { return f.placa; }).join(', ') : 'NINGUNA')]].forEach(function (p) {
         const cel = ws.getCell(p[0]);
         cel.value = p[1];
         cel.font = { name: 'Calibri', size: 11, bold: true, color: { argb: BLANCO } };
@@ -742,6 +757,18 @@ function vtxConfigurarUI() {
     vtxCablear('vtx-clr-estatus', 'click', function () { vtxFiltro.estatus = []; vtxRender(); });
     vtxCablear('vtx-clr-op', 'click', function () { vtxFiltro.op = []; vtxRender(); });
 
+    vtxCablear('vtx-tbody', 'click', function (e) {
+        const b = e.target.closest('.vtx-quitar'); if (!b) return;
+        const id = b.getAttribute('data-id');
+        if (vtxRetiradas.indexOf(id) === -1) vtxRetiradas.push(id);
+        vtxRender();
+    });
+    vtxCablear('vtx-retiradas', 'click', function (e) {
+        if (e.target.closest('#vtx-restaurar-todas')) { vtxRetiradas = []; vtxRender(); return; }
+        const r = e.target.closest('.vtx-restaurar'); if (!r) return;
+        vtxRetiradas = vtxRetiradas.filter(function (id) { return id !== r.getAttribute('data-id'); });
+        vtxRender();
+    });
     vtxCablear('vtx-thead', 'click', function (e) {
         const th = e.target.closest('th'); if (!th) return;
         const k = th.getAttribute('data-k'); if (k === '_link') return;
