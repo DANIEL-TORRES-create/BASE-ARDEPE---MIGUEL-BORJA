@@ -124,6 +124,7 @@
 const VTX_CFG = {
     GRUPOS: { LOCAL: 'b2798', PROVINCIAS: 'b279A' },
     ZONE_TYPE_PERNOCTE: 'b177',
+    MAX_ZONAS: 3,                   // zonas a mostrar cuando esta FUERA de PERNOCTE
     EMPRESA: 'ARDEPE SAC',
     TITULO_MSG: 'Parada Autorizada T1',
     TZ_OFFSET_H: 5,                 // Lima = UTC-5 (sin horario de verano)
@@ -219,6 +220,7 @@ function vtxPrepararZonas(zonas) {
         const tipos = (z.zoneTypes || []).map(function (t) { return typeof t === 'string' ? t : t.id; });
         return {
             nombre: z.name, points: z.points, pernocte: tipos.indexOf(VTX_CFG.ZONE_TYPE_PERNOCTE) !== -1,
+            area: (maxX - minX) * (maxY - minY),
             desde: vtxD(z.activeFrom), hasta: vtxD(z.activeTo), minX: minX, maxX: maxX, minY: minY, maxY: maxY
         };
     });
@@ -379,8 +381,10 @@ async function vtxConsultar() {
             const zs = x.rc.pos ? vtxZonasEn(zonas, x.rc.pos.lat, x.rc.pos.lon, T) : [];
             const pern = zs.filter(function (z) { return z.pernocte; });
             x.estatus = pern.length ? 'DENTRO DE GEOCERCA' : 'FUERA DE GEOCERCA';
+            // Fuera de PERNOCTE: maximo VTX_CFG.MAX_ZONAS zonas, las mas pequenas (mas especificas) primero
+            const otras = zs.slice().sort(function (a, b) { return a.area - b.area; }).slice(0, VTX_CFG.MAX_ZONAS);
             x.lugar = pern.length ? pern.map(function (z) { return z.nombre; }).join(', ')
-                : zs.map(function (z) { return z.nombre; }).join(', ');
+                : otras.map(function (z) { return z.nombre; }).join(', ');
         });
 
         // Direccion referencial solo para las que no estan en ninguna zona
@@ -477,7 +481,7 @@ function vtxMensaje() {
 }
 
 const VTX_COLS = [
-    ['placa', 'Placa'], ['conductor', 'Conductor'], ['ultimoGps', 'Último registro GPS'],
+    ['placa', 'Placa'], ['conductor', 'Conductor'], ['ultimoGps', 'Último registro'],
     ['lugar', 'Dirección de la última parada'], ['estado', 'Estado'], ['_link', 'LINK PLATAFORMA GEOTAB']
 ];
 
@@ -642,7 +646,7 @@ async function vtxExportar() {
     un.border = { top: negro, left: negro, bottom: negro, right: negro };
 
     // Tabla (estilo PivotStyleMedium2)
-    const hdr = ['Placa', 'Conductor', 'Último registro GPS', 'Dirección de la última parada', 'Estado', 'LINK PLATAFORMA GEOTAB'];
+    const hdr = ['Placa', 'Conductor', 'Último registro', 'Dirección de la última parada', 'Estado', 'LINK PLATAFORMA GEOTAB'];
     const rh = ws.getRow(10);
     hdr.forEach(function (h, i) {
         const cel = rh.getCell(i + 2);
@@ -671,7 +675,7 @@ async function vtxExportar() {
 
     const buf = await wb.xlsx.writeBuffer();
     const l = vtxLima(vtxFechaConsulta);
-    const nombre = 'Reporte_Zonas_Autorizadas_' + l.getUTCFullYear() + vtxPad(l.getUTCMonth() + 1) + vtxPad(l.getUTCDate()) + '_' + vtxPad(l.getUTCHours()) + vtxPad(l.getUTCMinutes()) + '.xlsx';
+    const nombre = 'Alerta de transmisión - DENTRO Y FUERA DE GEOCERCAS_' + l.getUTCFullYear() + vtxPad(l.getUTCMonth() + 1) + vtxPad(l.getUTCDate()) + '_' + vtxPad(l.getUTCHours()) + vtxPad(l.getUTCMinutes()) + '.xlsx';
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     a.download = nombre;
