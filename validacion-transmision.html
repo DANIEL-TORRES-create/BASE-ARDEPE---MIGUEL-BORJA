@@ -40,6 +40,14 @@
             </div>
             <div class="vtx-campo">
                 <span class="vtx-etq">&nbsp;</span>
+                <div class="vtx-fila-hora">
+                    <button type="button" class="vtx-btn vtx-btn-sec" id="vtx-btn-editar" disabled>Editar</button>
+                    <button type="button" class="vtx-btn vtx-btn-ok" id="vtx-btn-guardar" style="display:none">Guardar cambios</button>
+                    <button type="button" class="vtx-btn vtx-btn-sec" id="vtx-btn-cancelar" style="display:none">Cancelar</button>
+                </div>
+            </div>
+            <div class="vtx-campo">
+                <span class="vtx-etq">&nbsp;</span>
                 <button type="button" class="vtx-btn vtx-btn-sec" id="vtx-btn-exportar" disabled>Exportar Excel</button>
             </div>
         </div>
@@ -150,6 +158,10 @@ let vtxFechaConsulta = null;       // Date (UTC) de la consulta
 let vtxDispositivos = [];          // catalogo para el combo de placas
 let vtxPlacasSel = [];             // ids seleccionados en el combo
 let vtxRetiradas = [];             // ids retirados manualmente (no cuentan en calculos ni Excel)
+let vtxAjusteZona = {};            // id -> 'DENTRO DE GEOCERCA' | 'FUERA DE GEOCERCA' marcado manualmente
+let vtxEditando = false;           // modo edicion activo
+let vtxRespaldo = null;            // copia para CANCELAR la edicion
+function vtxEstatus(f) { return vtxAjusteZona[f.id] || f.estatus; }   // estatus efectivo (con ajuste manual)
 const vtxFiltro = { estatus: [], op: [] };
 let vtxOrden = { k: 'placa', dir: 1 };
 let vtxConsultando = false;
@@ -318,7 +330,9 @@ async function vtxConsultar() {
 
     vtxConsultando = true;
     $('vtx-btn-consultar').disabled = true; $('vtx-btn-exportar').disabled = true; $('vtx-btn-copiar').disabled = true;
-    vtxFilas = []; vtxFechaConsulta = T; vtxRender();
+    vtxFilas = []; vtxFechaConsulta = T;
+    vtxRetiradas = []; vtxAjusteZona = {}; vtxEditando = false; vtxRespaldo = null;
+    vtxRender();
     $('vtx-tbody').innerHTML = '<tr><td colspan="6" class="vtx-vacio">Consultando…</td></tr>';
 
     try {
@@ -430,7 +444,7 @@ async function vtxConsultar() {
 // ---------------- Filtros y vista ----------------
 function vtxFiltradas() {
     return vtxFilas.filter(function (f) {
-        if (vtxFiltro.estatus.length && vtxFiltro.estatus.indexOf(f.estatus) === -1) return false;
+        if (vtxFiltro.estatus.length && vtxFiltro.estatus.indexOf(vtxEstatus(f)) === -1) return false;
         if (vtxFiltro.op.length && vtxFiltro.op.indexOf(f.op) === -1) return false;
         if (vtxPlacasSel.length && vtxPlacasSel.indexOf(f.id) === -1) return false;
         if (vtxRetiradas.indexOf(f.id) !== -1) return false;
@@ -454,7 +468,7 @@ function vtxBaseConteo() {
 }
 function vtxConteos() {
     const base = vtxBaseConteo();
-    const dentro = base.filter(function (f) { return f.estatus === 'DENTRO DE GEOCERCA'; }).length;
+    const dentro = base.filter(function (f) { return vtxEstatus(f) === 'DENTRO DE GEOCERCA'; }).length;
     return { total: base.length, dentro: dentro, fuera: base.length - dentro };
 }
 
@@ -514,20 +528,26 @@ function vtxRender() {
     const msg = vtxMensaje();
     $('vtx-msg-txt').textContent = msg || 'Se genera al consultar.';
     $('vtx-btn-copiar').disabled = !msg;
-    $('vtx-btn-exportar').disabled = !hay || vtxConsultando;
+    $('vtx-btn-exportar').disabled = !hay || vtxConsultando || vtxEditando;
+    $('vtx-btn-consultar').disabled = vtxConsultando || vtxEditando;
+    $('vtx-btn-editar').disabled = !hay || vtxConsultando;
+    $('vtx-btn-editar').style.display = vtxEditando ? 'none' : '';
+    $('vtx-btn-guardar').style.display = vtxEditando ? '' : 'none';
+    $('vtx-btn-cancelar').style.display = vtxEditando ? '' : 'none';
+    $('vtx-root').classList.toggle('vtx-modo-edicion', vtxEditando);
 
     // Placas retiradas
     const ret = vtxFilas.filter(function (f) { return vtxRetiradas.indexOf(f.id) !== -1; });
-    $('vtx-retiradas').innerHTML = ret.length ?
+    $('vtx-retiradas').innerHTML = (vtxEditando && ret.length) ?
         '<span class="vtx-retiradas-lbl">Placas retiradas del cálculo (' + ret.length + '):</span>' +
         ret.map(function (f) { return '<span class="vtx-chip">' + vtxEsc(f.placa) + '<span class="vtx-chip-x vtx-restaurar" data-id="' + vtxEsc(f.id) + '" title="Volver a considerar">&#8634;</span></span>'; }).join('') +
         '<button type="button" class="vtx-btn vtx-btn-sec vtx-btn-mini" id="vtx-restaurar-todas">Restaurar todas</button>' : '';
-    $('vtx-retiradas').style.display = ret.length ? 'flex' : 'none';
+    $('vtx-retiradas').style.display = (vtxEditando && ret.length) ? 'flex' : 'none';
 
     // Tabla
     $('vtx-thead').innerHTML = '<tr>' + VTX_COLS.map(function (col) {
         return '<th data-k="' + col[0] + '">' + col[1] + (vtxOrden.k === col[0] ? (vtxOrden.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
-    }).join('') + '</tr>';
+    }).join('') + (vtxEditando ? '<th data-k="_edit" class="vtx-th-edit">Dentro de zona</th>' : '') + '</tr>';
     if (!hay) {
         if (!vtxConsultando) $('vtx-tbody').innerHTML = '<tr><td colspan="6" class="vtx-vacio">Elige la fecha y hora de consulta y presiona <b>Consultar</b>.</td></tr>';
         return;
@@ -535,14 +555,15 @@ function vtxRender() {
     $('vtx-tbody').innerHTML = lista.map(function (f) {
         const dentro = f.estatus === 'DENTRO DE GEOCERCA';
         return '<tr>' +
-            '<td class="vtx-td-placa"><button type="button" class="vtx-quitar" data-id="' + vtxEsc(f.id) + '" title="Retirar esta placa del cálculo">&#10005;</button>' + vtxEsc(f.placa) + '</td>' +
+            '<td class="vtx-td-placa">' + (vtxEditando ? '<button type="button" class="vtx-quitar" data-id="' + vtxEsc(f.id) + '" title="Retirar esta placa del cálculo">&#10005;</button>' : '') + vtxEsc(f.placa) + '</td>' +
             '<td>' + vtxEsc(f.conductor) + '</td>' +
             '<td class="vtx-td-fecha">' + vtxEsc(vtxFmtFechaHora(f.ultimoGps)) + '</td>' +
             '<td class="vtx-td-dir' + (dentro ? ' vtx-dentro' : '') + '">' + vtxEsc(f.lugar) + '</td>' +
             '<td class="vtx-td-estado">' + vtxEsc(f.estado) + '</td>' +
             '<td><a class="vtx-link" href="' + vtxEsc(vtxLinkGeotab(f)) + '" target="_blank" rel="noopener">Ver en Geotab</a></td>' +
+            (vtxEditando ? '<td class="vtx-td-edit"><label class="vtx-check"><input type="checkbox" class="vtx-chk-zona" data-id="' + vtxEsc(f.id) + '"' + (vtxEstatus(f) === 'DENTRO DE GEOCERCA' ? ' checked' : '') + '> Dentro' + (vtxAjusteZona[f.id] ? ' <span class="vtx-editado">editado</span>' : '') + '</label></td>' : '') +
             '</tr>';
-    }).join('') || '<tr><td colspan="6" class="vtx-vacio">Sin unidades para los filtros elegidos.</td></tr>';
+    }).join('') || '<tr><td colspan="7" class="vtx-vacio">Sin unidades para los filtros elegidos.</td></tr>';
 }
 
 // ---------------- Combo de placas (multi-seleccion) ----------------
@@ -638,8 +659,7 @@ async function vtxExportar() {
     }
     [['E4', filtroTxt('ESTATUS', vtxFiltro.estatus, 'TODOS')],
      ['E5', filtroTxt('FILTRO OPERACIÓN', vtxFiltro.op, 'TODAS')],
-     ['E6', 'PLACAS: ' + (vtxPlacasSel.length ? lista.map(function (f) { return f.placa; }).join(', ') : 'TODAS')],
-     ['E7', 'PLACAS RETIRADAS: ' + (vtxRetiradas.length ? vtxFilas.filter(function (f) { return vtxRetiradas.indexOf(f.id) !== -1; }).map(function (f) { return f.placa; }).join(', ') : 'NINGUNA')]].forEach(function (p) {
+     ['E6', 'PLACAS: ' + (vtxPlacasSel.length ? lista.map(function (f) { return f.placa; }).join(', ') : 'TODAS')]].forEach(function (p) {
         const cel = ws.getCell(p[0]);
         cel.value = p[1];
         cel.font = { name: 'Calibri', size: 11, bold: true, color: { argb: BLANCO } };
@@ -723,8 +743,11 @@ function vtxCopiarRespaldo(txt) {
 // Add-In, se vuelve a cablear; si es el mismo elemento, no se duplican eventos.
 function vtxCablear(id, evento, fn) {
     const el = $(id);
-    if (!el || el.dataset.vtxWired === evento) return;
-    el.dataset.vtxWired = evento;
+    if (!el) return;
+    const hechos = (el.dataset.vtxWired || '').split(',');
+    if (hechos.indexOf(evento) !== -1) return;
+    hechos.push(evento);
+    el.dataset.vtxWired = hechos.filter(Boolean).join(',');
     el.addEventListener(evento, fn);
 }
 
@@ -757,7 +780,25 @@ function vtxConfigurarUI() {
     vtxCablear('vtx-clr-estatus', 'click', function () { vtxFiltro.estatus = []; vtxRender(); });
     vtxCablear('vtx-clr-op', 'click', function () { vtxFiltro.op = []; vtxRender(); });
 
+    vtxCablear('vtx-btn-editar', 'click', function () {
+        if (!vtxFilas.length) return;
+        vtxRespaldo = { ret: vtxRetiradas.slice(), aj: Object.assign({}, vtxAjusteZona) };
+        vtxEditando = true; vtxRender();
+    });
+    vtxCablear('vtx-btn-guardar', 'click', function () { vtxEditando = false; vtxRespaldo = null; vtxRender(); });
+    vtxCablear('vtx-btn-cancelar', 'click', function () {
+        if (vtxRespaldo) { vtxRetiradas = vtxRespaldo.ret; vtxAjusteZona = vtxRespaldo.aj; }
+        vtxEditando = false; vtxRespaldo = null; vtxRender();
+    });
+    vtxCablear('vtx-tbody', 'change', function (e) {
+        const c = e.target.closest('.vtx-chk-zona'); if (!c || !vtxEditando) return;
+        const f = vtxFilas.find(function (x) { return x.id === c.getAttribute('data-id'); }); if (!f) return;
+        const nuevo = c.checked ? 'DENTRO DE GEOCERCA' : 'FUERA DE GEOCERCA';
+        if (nuevo === f.estatus) delete vtxAjusteZona[f.id]; else vtxAjusteZona[f.id] = nuevo;
+        vtxRender();
+    });
     vtxCablear('vtx-tbody', 'click', function (e) {
+        if (!vtxEditando) return;
         const b = e.target.closest('.vtx-quitar'); if (!b) return;
         const id = b.getAttribute('data-id');
         if (vtxRetiradas.indexOf(id) === -1) vtxRetiradas.push(id);
