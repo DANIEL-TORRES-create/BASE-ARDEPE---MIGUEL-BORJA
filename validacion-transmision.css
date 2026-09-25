@@ -314,3 +314,13 @@
     background: #fff8f0; border: 1px dashed #e0a060; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px;
 }
 #vtx-root .vtx-retiradas-lbl { font-size: 11px; font-weight: 800; color: #9a3b12; text-transform: uppercase; margin-right: 4px; }
+
+/* ---------- Modo edicion ---------- */
+#vtx-root .vtx-btn-ok { background: #0b6b2f; border-color: #0b6b2f; color: #ffffff; }
+#vtx-root .vtx-btn-ok:hover { background: #09562a; }
+#vtx-root.vtx-modo-edicion .vtx-tabla-wrap { outline: 3px solid #e0a060; outline-offset: -1px; }
+#vtx-root .vtx-tabla th.vtx-th-edit { background: #b45309; cursor: default; }
+#vtx-root .vtx-td-edit { white-space: nowrap; }
+#vtx-root .vtx-check { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; cursor: pointer; font-size: 12px; }
+#vtx-root .vtx-check input { width: 16px; height: 16px; accent-color: #0b6b2f; cursor: pointer; }
+#vtx-root .vtx-editado { background: #fef3c7; color: #7a5c00; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 10px; text-transform: uppercase; }
