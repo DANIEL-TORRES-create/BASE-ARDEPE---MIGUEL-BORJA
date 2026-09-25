@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validacion de Transmision ARDEPE</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="validacion-transmision.css?v=1">
+</head>
+<body>
+
+<div id="vtx-root">
+<div class="vtx-hoja">
+
+    <!-- Barra de consulta: UNA sola fecha y hora -->
+    <div class="vtx-toolbar">
+        <div class="vtx-campos">
+            <div class="vtx-campo">
+                <span class="vtx-etq">Fecha de consulta</span>
+                <div class="vtx-fila-hora">
+                    <input type="date" id="vtx-fecha" class="vtx-ctrl">
+                    <select id="vtx-hora" class="vtx-ctrl vtx-ctrl-hora" title="Hora"></select>
+                    <select id="vtx-min" class="vtx-ctrl vtx-ctrl-hora" title="Minuto"></select>
+                </div>
+            </div>
+            <div class="vtx-campo">
+                <span class="vtx-etq">Placa</span>
+                <div class="vtx-combo" id="vtx-combo">
+                    <div class="vtx-combo-chips" id="vtx-combo-chips">
+                        <input type="text" id="vtx-placa-txt" class="vtx-combo-input" placeholder="Todas las placas" autocomplete="off">
+                    </div>
+                    <div class="vtx-combo-lista" id="vtx-combo-lista"></div>
+                </div>
+            </div>
+            <div class="vtx-campo">
+                <span class="vtx-etq">&nbsp;</span>
+                <button type="button" class="vtx-btn" id="vtx-btn-consultar">Consultar</button>
+            </div>
+            <div class="vtx-campo">
+                <span class="vtx-etq">&nbsp;</span>
+                <button type="button" class="vtx-btn vtx-btn-sec" id="vtx-btn-exportar" disabled>Exportar Excel</button>
+            </div>
+        </div>
+        <div class="vtx-progreso">
+            <div class="vtx-progreso-txt" id="vtx-progreso-txt">Elige la fecha y hora y presiona Consultar.</div>
+            <div class="vtx-progreso-bar"><div class="vtx-progreso-fill" id="vtx-progreso-fill"></div></div>
+        </div>
+    </div>
+
+    <!-- Encabezado igual a la hoja DETALLADO -->
+    <div class="vtx-titulo">REPORTE DE ZONAS AUTORIZADAS</div>
+
+    <div class="vtx-cabecera">
+        <div class="vtx-kv">
+            <div class="vtx-kv-lbl">FECHA DE CONSULTA</div><div class="vtx-kv-val" id="vtx-val-fecha">--</div>
+            <div class="vtx-kv-sep"></div>
+            <div class="vtx-kv-lbl">CANTIDAD DE UNIDADES TOTALES</div><div class="vtx-kv-val" id="vtx-val-total">--</div>
+            <div class="vtx-kv-lbl">CANTIDAD DE UNIDADES FUERA DE GEOCERCA</div><div class="vtx-kv-val" id="vtx-val-fuera">--</div>
+            <div class="vtx-kv-lbl">CANTIDAD DE UNIDADES DENTRO DE GEOCERCA</div><div class="vtx-kv-val" id="vtx-val-dentro">--</div>
+        </div>
+
+        <div class="vtx-slicers">
+            <div class="vtx-slicer">
+                <div class="vtx-slicer-hd">ESTATUS <button type="button" class="vtx-slicer-clear" id="vtx-clr-estatus" title="Borrar filtro" disabled>&#10005;</button></div>
+                <div class="vtx-slicer-body" id="vtx-sl-estatus">
+                    <button type="button" class="vtx-slicer-item" data-v="DENTRO DE GEOCERCA">DENTRO DE GEOCERCA</button>
+                    <button type="button" class="vtx-slicer-item" data-v="FUERA DE GEOCERCA">FUERA DE GEOCERCA</button>
+                </div>
+            </div>
+            <div class="vtx-slicer">
+                <div class="vtx-slicer-hd">FILTRO OPERACI&Oacute;N <button type="button" class="vtx-slicer-clear" id="vtx-clr-op" title="Borrar filtro" disabled>&#10005;</button></div>
+                <div class="vtx-slicer-body" id="vtx-sl-op">
+                    <button type="button" class="vtx-slicer-item" data-v="LOCAL">LOCAL</button>
+                    <button type="button" class="vtx-slicer-item" data-v="PROVINCIAS">PROVINCIAS</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="vtx-unidades">
+            <div class="vtx-unidades-lbl">UNIDADES</div>
+            <div class="vtx-unidades-num" id="vtx-val-unidades">--</div>
+        </div>
+    </div>
+
+    <!-- Mensaje para enviar (solo en el Add-In, no se exporta) -->
+    <div class="vtx-msg">
+        <div class="vtx-msg-hd">
+            <span>Mensaje para enviar</span>
+            <button type="button" class="vtx-btn vtx-btn-sec vtx-btn-mini" id="vtx-btn-copiar" disabled>Copiar mensaje</button>
+        </div>
+        <pre class="vtx-msg-txt" id="vtx-msg-txt">Se genera al consultar.</pre>
+    </div>
+
+    <!-- Tabla igual a la tabla dinamica del DETALLADO -->
+    <div class="vtx-tabla-wrap">
+        <table class="vtx-tabla">
+            <thead id="vtx-thead"></thead>
+            <tbody id="vtx-tbody">
+                <tr><td colspan="6" class="vtx-vacio">Elige la fecha y hora de consulta y presiona <b>Consultar</b>.</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+</div>
+</div>
+
+<script>
+(function () {
+'use strict';
+/* ==========================================================================
+   ARDEPE - Validacion de Transmision (REPORTE DE ZONAS AUTORIZADAS)
+   Reconstruye, para UNA fecha y hora, el estado de cada unidad desde el
+   historico de MyGeotab (Trip + LogRecord + DriverChange):
+     - Estado (Conduciendo / Detenido) y ultimo registro GPS <= esa hora
+     - DENTRO DE GEOCERCA si la posicion cae en una zona del tipo PERNOCTE
+     - Si no: nombres de las zonas donde este (de cualquier tipo)
+     - Si no hay zonas: direccion referencial
+   Todo el codigo vive dentro de este IIFE: no se crean funciones globales.
+   ========================================================================== */
+
+// ---------------- Configuracion ----------------
+const VTX_CFG = {
+    GRUPOS: { LOCAL: 'b2798', PROVINCIAS: 'b279A' },
+    ZONE_TYPE_PERNOCTE: 'b177',
+    EMPRESA: 'ARDEPE SAC',
+    TITULO_MSG: 'Parada Autorizada T1',
+    TZ_OFFSET_H: 5,                 // Lima = UTC-5 (sin horario de verano)
+    TRIP_ATRAS_H: 72,               // historial de viajes a revisar hacia atras
+    DRIVER_ATRAS_DIAS: 7,           // historial de cambios de conductor
+    LOG_ANTES_MIN: 90,              // ventana de LogRecord antes de la hora consultada
+    LOG_DESPUES_MIN: 5,             // y despues (solo para confirmar movimiento)
+    VEL_MOVIMIENTO: 5,              // km/h para considerar que esta en movimiento
+    BLOQUE: 30,                     // llamadas por multiCall
+    PAUSA_MS: 250,
+    REINTENTOS: 3,
+    EXCELJS: 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js'
+};
+
+// ---------------- Estado ----------------
+let vtxApi = null;
+let vtxSesion = { server: '', database: '' };
+let vtxFilas = [];                 // resultado de la ultima consulta
+let vtxFechaConsulta = null;       // Date (UTC) de la consulta
+let vtxDispositivos = [];          // catalogo para el combo de placas
+let vtxPlacasSel = [];             // ids seleccionados en el combo
+const vtxFiltro = { estatus: [], op: [] };
+let vtxOrden = { k: 'placa', dir: 1 };
+let vtxConsultando = false;
+
+const $ = function (id) { return document.getElementById(id); };
+
+// ---------------- Utilidades ----------------
+function vtxSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function vtxEsc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function vtxD(x) { return x ? new Date(x) : null; }
+function vtxPad(n) { return String(n).padStart(2, '0'); }
+
+// Fechas en hora de Lima, sin depender de la zona horaria del navegador
+function vtxLima(d) { return new Date(d.getTime() - VTX_CFG.TZ_OFFSET_H * 3600e3); }
+function vtxFmtFechaHora(d, conSeg) {
+    if (!d) return '';
+    const l = vtxLima(d);
+    return vtxPad(l.getUTCDate()) + '/' + vtxPad(l.getUTCMonth() + 1) + '/' + l.getUTCFullYear() + ' ' +
+        vtxPad(l.getUTCHours()) + ':' + vtxPad(l.getUTCMinutes()) + (conSeg === false ? '' : ':' + vtxPad(l.getUTCSeconds()));
+}
+function vtxLimaAUtc(fechaStr, h, m) {
+    const p = fechaStr.split('-').map(Number);
+    return new Date(Date.UTC(p[0], p[1] - 1, p[2], Number(h) + VTX_CFG.TZ_OFFSET_H, Number(m), 0));
+}
+
+// ---------------- API con reintentos ----------------
+function vtxCall(method, params) {
+    return new Promise(function (res, rej) { vtxApi.call(method, params, res, rej); });
+}
+function vtxMulti(calls) {
+    if (!calls.length) return Promise.resolve([]);
+    return new Promise(function (res, rej) { vtxApi.multiCall(calls, res, rej); });
+}
+async function vtxConReintento(fn) {
+    for (let i = 1; i <= VTX_CFG.REINTENTOS; i++) {
+        try { return await fn(); } catch (e) {
+            if (i === VTX_CFG.REINTENTOS) throw e;
+            await vtxSleep(400 * i);
+        }
+    }
+}
+async function vtxMultiEnBloques(calls, alAvanzar) {
+    let out = [];
+    for (let i = 0; i < calls.length; i += VTX_CFG.BLOQUE) {
+        const parte = calls.slice(i, i + VTX_CFG.BLOQUE);
+        const r = await vtxConReintento(function () { return vtxMulti(parte); });
+        out = out.concat(r);
+        if (alAvanzar) alAvanzar(Math.min(i + VTX_CFG.BLOQUE, calls.length), calls.length);
+        if (i + VTX_CFG.BLOQUE < calls.length) await vtxSleep(VTX_CFG.PAUSA_MS);
+    }
+    return out;
+}
+
+// ---------------- Geocercas ----------------
+function vtxPuntoEnPoligono(lat, lon, pts) {
+    let dentro = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const yi = pts[i].y, xi = pts[i].x, yj = pts[j].y, xj = pts[j].x;
+        if (((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-12) + xi)) dentro = !dentro;
+    }
+    return dentro;
+}
+function vtxPrepararZonas(zonas) {
+    return (zonas || []).filter(function (z) { return z.points && z.points.length > 2; }).map(function (z) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        z.points.forEach(function (p) {
+            if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+        });
+        const tipos = (z.zoneTypes || []).map(function (t) { return typeof t === 'string' ? t : t.id; });
+        return {
+            nombre: z.name, points: z.points, pernocte: tipos.indexOf(VTX_CFG.ZONE_TYPE_PERNOCTE) !== -1,
+            desde: vtxD(z.activeFrom), hasta: vtxD(z.activeTo), minX: minX, maxX: maxX, minY: minY, maxY: maxY
+        };
+    });
+}
+function vtxZonasEn(zonas, lat, lon, cuando) {
+    return zonas.filter(function (z) {
+        if (lon < z.minX || lon > z.maxX || lat < z.minY || lat > z.maxY) return false;
+        if (z.desde && cuando < z.desde) return false;
+        if (z.hasta && cuando > z.hasta) return false;
+        return vtxPuntoEnPoligono(lat, lon, z.points);
+    });
+}
+
+// ---------------- Reconstruccion del estado a la hora consultada ----------------
+function vtxReconstruir(T, viajes, logs) {
+    viajes = (viajes || []).slice().sort(function (a, b) { return vtxD(a.start) - vtxD(b.start); });
+    logs = (logs || []).filter(function (l) { return l.latitude || l.longitude; })
+        .sort(function (a, b) { return vtxD(a.dateTime) - vtxD(b.dateTime); });
+    const antes = logs.filter(function (l) { return vtxD(l.dateTime) <= T; });
+    const ultimoLog = antes[antes.length - 1] || null;
+
+    let estado = 'Sin datos', ultimoViaje = null;
+    const enCurso = viajes.find(function (v) { return vtxD(v.start) <= T && T < vtxD(v.stop); });
+    if (enCurso) { estado = 'Conduciendo'; ultimoViaje = enCurso; }
+    else {
+        const previos = viajes.filter(function (v) { return vtxD(v.stop) <= T; });
+        ultimoViaje = previos[previos.length - 1] || null;
+        if (ultimoViaje) {
+            const sig = vtxD(ultimoViaje.nextTripStart);
+            estado = (sig && sig <= T && sig.getUTCFullYear() < 2049) ? 'Conduciendo' : 'Detenido';
+        }
+    }
+    // Si Geotab aun no cerro el viaje, manda la velocidad del ultimo LogRecord
+    if (ultimoLog && (T - vtxD(ultimoLog.dateTime)) / 60000 <= 5 && (ultimoLog.speed || 0) > VTX_CFG.VEL_MOVIMIENTO) estado = 'Conduciendo';
+    if (estado === 'Sin datos' && ultimoLog) estado = (ultimoLog.speed || 0) > VTX_CFG.VEL_MOVIMIENTO ? 'Conduciendo' : 'Detenido';
+
+    let pos = ultimoLog ? { lat: ultimoLog.latitude, lon: ultimoLog.longitude } : null;
+    if (!pos && ultimoViaje && ultimoViaje.stopPoint && estado === 'Detenido') pos = { lat: ultimoViaje.stopPoint.y, lon: ultimoViaje.stopPoint.x };
+    return { estado: estado, ultimoLog: ultimoLog, ultimoViaje: ultimoViaje, pos: pos };
+}
+
+function vtxConductorA(T, cambios, viaje, mapaCond) {
+    const lista = (cambios || []).filter(function (c) { return vtxD(c.dateTime) <= T; })
+        .sort(function (a, b) { return vtxD(a.dateTime) - vtxD(b.dateTime); });
+    const ult = lista[lista.length - 1];
+    let id = ult && ult.driver ? (ult.driver.id || ult.driver) : null;
+    if (!id || id === 'UnknownDriverId' || id === 'NoDriverId') {
+        const vd = viaje && viaje.driver ? (viaje.driver.id || viaje.driver) : null;
+        id = (vd && vd !== 'UnknownDriverId' && vd !== 'NoDriverId') ? vd : null;
+    }
+    return id ? (mapaCond[id] || 'SIN CONDUCTOR') : 'SIN CONDUCTOR';
+}
+
+// ---------------- Consulta principal ----------------
+function vtxProgreso(txt, p) {
+    $('vtx-progreso-txt').textContent = txt;
+    if (p != null) $('vtx-progreso-fill').style.width = Math.round(p * 100) + '%';
+}
+
+function vtxSerialValido(s) {
+    s = String(s || '').toUpperCase().trim();
+    return s.startsWith('G7') || s.startsWith('G9') || s.startsWith('GA');
+}
+
+async function vtxCargarDispositivos(T) {
+    const r = await vtxConReintento(function () {
+        return vtxMulti([
+            ['Get', { typeName: 'Device', search: { groups: [{ id: VTX_CFG.GRUPOS.LOCAL }] } }],
+            ['Get', { typeName: 'Device', search: { groups: [{ id: VTX_CFG.GRUPOS.PROVINCIAS }] } }]
+        ]);
+    });
+    const vistos = {}, lista = [];
+    [['LOCAL', r[0]], ['PROVINCIAS', r[1]]].forEach(function (par) {
+        (par[1] || []).forEach(function (d) {
+            if (vistos[d.id] || !vtxSerialValido(d.serialNumber)) return;
+            if (T && ((d.activeFrom && vtxD(d.activeFrom) > T) || (d.activeTo && vtxD(d.activeTo) < T))) return;
+            vistos[d.id] = true;
+            lista.push({ id: d.id, placa: d.licensePlate || d.name, nombre: d.name, op: par[0] });
+        });
+    });
+    lista.sort(function (a, b) { return a.placa < b.placa ? -1 : 1; });
+    return lista;
+}
+
+async function vtxConsultar() {
+    if (vtxConsultando) return;
+    const fecha = $('vtx-fecha').value;
+    if (!fecha) { vtxProgreso('Indica la fecha de consulta.'); return; }
+    const T = vtxLimaAUtc(fecha, $('vtx-hora').value, $('vtx-min').value);
+    if (T > new Date()) { vtxProgreso('La fecha y hora de consulta no puede ser futura.'); return; }
+
+    vtxConsultando = true;
+    $('vtx-btn-consultar').disabled = true; $('vtx-btn-exportar').disabled = true; $('vtx-btn-copiar').disabled = true;
+    vtxFilas = []; vtxFechaConsulta = T; vtxRender();
+    $('vtx-tbody').innerHTML = '<tr><td colspan="6" class="vtx-vacio">Consultando…</td></tr>';
+
+    try {
+        vtxProgreso('Cargando unidades, conductores y zonas…', 0.03);
+        const dispositivos = await vtxCargarDispositivos(T);
+        vtxDispositivos = dispositivos;
+        const base = await vtxConReintento(function () {
+            return vtxMulti([
+                ['Get', { typeName: 'User', search: { isDriver: true } }],
+                ['Get', { typeName: 'Zone', resultsLimit: 10000 }]
+            ]);
+        });
+        const mapaCond = {};
+        (base[0] || []).forEach(function (u) {
+            const n = ((u.lastName || '') + ' ' + (u.firstName || '')).trim().toUpperCase();
+            mapaCond[u.id] = n || u.name || '';
+        });
+        const zonas = vtxPrepararZonas(base[1]);
+
+        const tIso = T.toISOString();
+        const desdeViajes = new Date(T - VTX_CFG.TRIP_ATRAS_H * 3600e3).toISOString();
+        const desdeLog = new Date(T - VTX_CFG.LOG_ANTES_MIN * 60e3);
+        const hastaLog = new Date(+T + VTX_CFG.LOG_DESPUES_MIN * 60e3).toISOString();
+        const desdeCond = new Date(T - VTX_CFG.DRIVER_ATRAS_DIAS * 86400e3).toISOString();
+
+        const llamadas = [];
+        dispositivos.forEach(function (d) {
+            llamadas.push(['Get', { typeName: 'Trip', search: { deviceSearch: { id: d.id }, fromDate: desdeViajes, toDate: tIso, includeOverlappedTrips: true } }]);
+            llamadas.push(['Get', { typeName: 'LogRecord', search: { deviceSearch: { id: d.id }, fromDate: desdeLog.toISOString(), toDate: hastaLog } }]);
+            llamadas.push(['Get', { typeName: 'DriverChange', search: { deviceSearch: { id: d.id }, fromDate: desdeCond, toDate: tIso, includeOverlappedChanges: true } }]);
+        });
+        const res = await vtxMultiEnBloques(llamadas, function (a, b) {
+            vtxProgreso('Consultando histórico… ' + Math.floor(a / 3) + ' de ' + dispositivos.length + ' unidades', 0.05 + 0.7 * a / b);
+        });
+
+        const recs = dispositivos.map(function (d, i) {
+            return { d: d, rc: vtxReconstruir(T, res[3 * i], res[3 * i + 1]), cambios: res[3 * i + 2] };
+        });
+
+        // 2da pasada: unidades sin LogRecord en la ventana -> ultimo registro anterior
+        const faltan = recs.filter(function (x) { return !x.rc.ultimoLog; });
+        if (faltan.length) {
+            vtxProgreso('Validando último registro de ' + faltan.length + ' unidades detenidas…', 0.78);
+            const c2 = faltan.map(function (x) {
+                const v = x.rc.ultimoViaje;
+                let desde = v ? new Date(vtxD(v.stop) - 15 * 60e3) : new Date(T - 24 * 3600e3);
+                if (desde >= desdeLog) desde = new Date(desdeLog - 60e3);
+                return ['Get', { typeName: 'LogRecord', search: { deviceSearch: { id: x.d.id }, fromDate: desde.toISOString(), toDate: desdeLog.toISOString() } }];
+            });
+            const r2 = await vtxMultiEnBloques(c2);
+            faltan.forEach(function (x, i) {
+                const ls = (r2[i] || []).filter(function (l) { return l.latitude || l.longitude; })
+                    .sort(function (a, b) { return vtxD(a.dateTime) - vtxD(b.dateTime); });
+                const l = ls[ls.length - 1];
+                if (!l) return;
+                x.rc.ultimoLog = l;
+                x.rc.pos = { lat: l.latitude, lon: l.longitude };
+                if (x.rc.estado === 'Sin datos') x.rc.estado = 'Detenido';
+            });
+        }
+
+        // Zonas en segundo plano: primero PERNOCTE, luego cualquier zona
+        recs.forEach(function (x) {
+            const zs = x.rc.pos ? vtxZonasEn(zonas, x.rc.pos.lat, x.rc.pos.lon, T) : [];
+            const pern = zs.filter(function (z) { return z.pernocte; });
+            x.estatus = pern.length ? 'DENTRO DE GEOCERCA' : 'FUERA DE GEOCERCA';
+            x.lugar = pern.length ? pern.map(function (z) { return z.nombre; }).join(', ')
+                : zs.map(function (z) { return z.nombre; }).join(', ');
+        });
+
+        // Direccion referencial solo para las que no estan en ninguna zona
+        const sinZona = recs.filter(function (x) { return !x.lugar && x.rc.pos; });
+        if (sinZona.length) {
+            vtxProgreso('Obteniendo dirección referencial de ' + sinZona.length + ' unidades…', 0.9);
+            for (let i = 0; i < sinZona.length; i += 100) {
+                const lote = sinZona.slice(i, i + 100);
+                try {
+                    const dirs = await vtxConReintento(function () {
+                        return vtxCall('GetAddresses', { coordinates: lote.map(function (x) { return { x: x.rc.pos.lon, y: x.rc.pos.lat }; }), movingAddresses: false });
+                    });
+                    lote.forEach(function (x, k) { x.lugar = (dirs[k] && dirs[k].formattedAddress) || ''; });
+                } catch (e) { console.warn('[VTX] GetAddresses', e); }
+            }
+        }
+
+        vtxFilas = recs.map(function (x) {
+            return {
+                id: x.d.id, placa: x.d.placa, op: x.d.op,
+                conductor: vtxConductorA(T, x.cambios, x.rc.ultimoViaje, mapaCond),
+                ultimoGps: x.rc.ultimoLog ? vtxD(x.rc.ultimoLog.dateTime) : null,
+                lugar: x.lugar || (x.rc.pos ? '' : 'Sin registros de posición'),
+                estado: x.rc.estado, estatus: x.rc.pos ? x.estatus : 'FUERA DE GEOCERCA'
+            };
+        });
+        vtxProgreso('Listo: ' + vtxFilas.length + ' unidades evaluadas al ' + vtxFmtFechaHora(T), 1);
+    } catch (e) {
+        console.error('[VTX]', e);
+        vtxFilas = [];
+        vtxProgreso('Error al consultar la API: ' + (e && e.message ? e.message : String(e)), 0);
+    } finally {
+        vtxConsultando = false;
+        $('vtx-btn-consultar').disabled = false;
+        vtxRender();
+    }
+}
+
+// ---------------- Filtros y vista ----------------
+function vtxFiltradas() {
+    return vtxFilas.filter(function (f) {
+        if (vtxFiltro.estatus.length && vtxFiltro.estatus.indexOf(f.estatus) === -1) return false;
+        if (vtxFiltro.op.length && vtxFiltro.op.indexOf(f.op) === -1) return false;
+        if (vtxPlacasSel.length && vtxPlacasSel.indexOf(f.id) === -1) return false;
+        return true;
+    }).sort(function (a, b) {
+        let x = a[vtxOrden.k], y = b[vtxOrden.k];
+        if (x instanceof Date || y instanceof Date) { x = x ? +x : 0; y = y ? +y : 0; }
+        x = x == null ? '' : x; y = y == null ? '' : y;
+        return (x > y ? 1 : x < y ? -1 : 0) * vtxOrden.dir;
+    });
+}
+// Base para contadores y mensaje: filtros de OPERACION y PLACA (no el de ESTATUS,
+// para que el % dentro / fuera tenga sentido sobre la flota elegida).
+function vtxBaseConteo() {
+    return vtxFilas.filter(function (f) {
+        if (vtxFiltro.op.length && vtxFiltro.op.indexOf(f.op) === -1) return false;
+        if (vtxPlacasSel.length && vtxPlacasSel.indexOf(f.id) === -1) return false;
+        return true;
+    });
+}
+function vtxConteos() {
+    const base = vtxBaseConteo();
+    const dentro = base.filter(function (f) { return f.estatus === 'DENTRO DE GEOCERCA'; }).length;
+    return { total: base.length, dentro: dentro, fuera: base.length - dentro };
+}
+
+function vtxLinkGeotab(f) {
+    const T = vtxFechaConsulta;
+    const ini = new Date(T - 2 * 3600e3).toISOString().replace(/\.\d+Z$/, '.000Z');
+    const fin = T.toISOString().replace(/\.\d+Z$/, '.000Z');
+    const host = vtxSesion.server || location.host;
+    return 'https://' + host + '/' + vtxSesion.database + "/#tripsHistory,dateRange:(endDate:'" + fin + "',startDate:'" + ini +
+        "'),devices:!(" + f.id + "),routes:(" + f.id + ":!((start:'" + ini + "',stop:'" + fin + "'))),tripCategories:!f,tripCategoriesSelect:all";
+}
+
+function vtxSaludo(T) {
+    const h = vtxLima(T).getUTCHours();
+    if (h >= 5 && h < 12) return 'BUENOS DÍAS';
+    if (h >= 12 && h < 19) return 'BUENAS TARDES';
+    return 'BUENAS NOCHES';
+}
+function vtxMensaje() {
+    if (!vtxFechaConsulta || !vtxFilas.length) return '';
+    const c = vtxConteos();
+    const pct = c.total ? (c.dentro * 100 / c.total) : 0;
+    return vtxSaludo(vtxFechaConsulta) + '\n' +
+        VTX_CFG.TITULO_MSG + '\n' +
+        'Fecha: ' + vtxFmtFechaHora(vtxFechaConsulta, false) + '\n' +
+        '⚠️ ' + pct.toFixed(2) + ' % ' + VTX_CFG.EMPRESA + '\n' +
+        '🚚 ' + vtxPad(c.total) + ' camiones\n' +
+        '✅ ' + vtxPad(c.dentro) + ' dentro de geocercas\n' +
+        '🚨 ' + vtxPad(c.fuera) + ' fuera de geocercas';
+}
+
+const VTX_COLS = [
+    ['placa', 'Placa'], ['conductor', 'Conductor'], ['ultimoGps', 'Último registro GPS'],
+    ['lugar', 'Dirección de la última parada'], ['estado', 'Estado'], ['_link', 'LINK PLATAFORMA GEOTAB']
+];
+
+function vtxRender() {
+    // Encabezado
+    const hay = vtxFilas.length > 0;
+    const c = vtxConteos();
+    const lista = vtxFiltradas();
+    $('vtx-val-fecha').textContent = vtxFechaConsulta ? vtxFmtFechaHora(vtxFechaConsulta) : '--';
+    $('vtx-val-total').textContent = hay ? c.total : '--';
+    $('vtx-val-fuera').textContent = hay ? c.fuera : '--';
+    $('vtx-val-dentro').textContent = hay ? c.dentro : '--';
+    $('vtx-val-unidades').textContent = hay ? lista.length : '--';
+
+    // Segmentadores
+    [['vtx-sl-estatus', 'estatus', 'vtx-clr-estatus'], ['vtx-sl-op', 'op', 'vtx-clr-op']].forEach(function (s) {
+        Array.prototype.forEach.call($(s[0]).querySelectorAll('.vtx-slicer-item'), function (b) {
+            b.classList.toggle('vtx-on', vtxFiltro[s[1]].length === 0 || vtxFiltro[s[1]].indexOf(b.getAttribute('data-v')) !== -1);
+        });
+        $(s[2]).disabled = vtxFiltro[s[1]].length === 0;
+    });
+
+    // Mensaje
+    const msg = vtxMensaje();
+    $('vtx-msg-txt').textContent = msg || 'Se genera al consultar.';
+    $('vtx-btn-copiar').disabled = !msg;
+    $('vtx-btn-exportar').disabled = !hay || vtxConsultando;
+
+    // Tabla
+    $('vtx-thead').innerHTML = '<tr>' + VTX_COLS.map(function (col) {
+        return '<th data-k="' + col[0] + '">' + col[1] + (vtxOrden.k === col[0] ? (vtxOrden.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
+    }).join('') + '</tr>';
+    if (!hay) {
+        if (!vtxConsultando) $('vtx-tbody').innerHTML = '<tr><td colspan="6" class="vtx-vacio">Elige la fecha y hora de consulta y presiona <b>Consultar</b>.</td></tr>';
+        return;
+    }
+    $('vtx-tbody').innerHTML = lista.map(function (f) {
+        const dentro = f.estatus === 'DENTRO DE GEOCERCA';
+        return '<tr>' +
+            '<td class="vtx-td-placa">' + vtxEsc(f.placa) + '</td>' +
+            '<td>' + vtxEsc(f.conductor) + '</td>' +
+            '<td class="vtx-td-fecha">' + vtxEsc(vtxFmtFechaHora(f.ultimoGps)) + '</td>' +
+            '<td class="vtx-td-dir' + (dentro ? ' vtx-dentro' : '') + '">' + vtxEsc(f.lugar) + '</td>' +
+            '<td class="vtx-td-estado">' + vtxEsc(f.estado) + '</td>' +
+            '<td><a class="vtx-link" href="' + vtxEsc(vtxLinkGeotab(f)) + '" target="_blank" rel="noopener">Ver en Geotab</a></td>' +
+            '</tr>';
+    }).join('') || '<tr><td colspan="6" class="vtx-vacio">Sin unidades para los filtros elegidos.</td></tr>';
+}
+
+// ---------------- Combo de placas (multi-seleccion) ----------------
+function vtxPlacasDisponibles() {
+    const src = vtxFilas.length ? vtxFilas : vtxDispositivos;
+    return src.filter(function (d) { return !vtxFiltro.op.length || vtxFiltro.op.indexOf(d.op) !== -1; });
+}
+function vtxRenderListaPlacas(txt) {
+    const t = (txt || '').toUpperCase().trim();
+    const items = vtxPlacasDisponibles().filter(function (d) { return !t || String(d.placa).toUpperCase().indexOf(t) !== -1; }).slice(0, 80);
+    const lista = $('vtx-combo-lista');
+    lista.innerHTML = items.length ? items.map(function (d) {
+        const on = vtxPlacasSel.indexOf(d.id) !== -1;
+        return '<div class="vtx-combo-item' + (on ? ' vtx-on' : '') + '" data-id="' + vtxEsc(d.id) + '"><span class="vtx-combo-check">' + (on ? '&#10003;' : '') + '</span>' + vtxEsc(d.placa) + '</div>';
+    }).join('') : '<div class="vtx-combo-vacio">Sin coincidencias</div>';
+}
+function vtxRenderChips() {
+    const cont = $('vtx-combo-chips'), input = $('vtx-placa-txt');
+    Array.prototype.forEach.call(cont.querySelectorAll('.vtx-chip'), function (el) { el.remove(); });
+    const src = vtxFilas.length ? vtxFilas : vtxDispositivos;
+    input.insertAdjacentHTML('beforebegin', vtxPlacasSel.map(function (id) {
+        const d = src.find(function (x) { return x.id === id; });
+        return '<span class="vtx-chip">' + vtxEsc(d ? d.placa : id) + '<span class="vtx-chip-x" data-id="' + vtxEsc(id) + '">&times;</span></span>';
+    }).join(''));
+    input.placeholder = vtxPlacasSel.length ? '' : 'Todas las placas';
+}
+
+// ---------------- Exportar a Excel (mismo formato que DETALLADO) ----------------
+function vtxCargarExcelJS() {
+    if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+    return new Promise(function (res, rej) {
+        const s = document.createElement('script');
+        s.src = VTX_CFG.EXCELJS;
+        s.onload = function () { res(window.ExcelJS); };
+        s.onerror = function () { rej(new Error('No se pudo cargar ExcelJS')); };
+        document.head.appendChild(s);
+    });
+}
+
+async function vtxExportar() {
+    const lista = vtxFiltradas();
+    const c = vtxConteos();
+    let ExcelJS;
+    try { ExcelJS = await vtxCargarExcelJS(); } catch (e) { alert(e.message); return; }
+
+    const ROJO = 'FFC00000', AZUL = 'FF25477B', FRANJA = 'FFD3DAE5', BLANCO = 'FFFFFFFF';
+    const negro = { style: 'medium', color: { argb: 'FF000000' } };
+    const fino = { style: 'thin', color: { argb: 'FF000000' } };
+    const aExcel = function (d) { return d ? vtxLima(d) : null; };   // serial = hora Lima
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Validacion de Transmision ARDEPE';
+    const ws = wb.addWorksheet('DETALLADO', { views: [{ showGridLines: false, state: 'frozen', ySplit: 10 }] });
+    ws.columns = [
+        { width: 9.1 }, { width: 46.7 }, { width: 40.4 }, { width: 26 }, { width: 70 }, { width: 16 }, { width: 30 }
+    ];
+
+    // Titulo B2:H2
+    ws.mergeCells('B2:G2');
+    const t = ws.getCell('B2');
+    t.value = 'REPORTE DE ZONAS AUTORIZADAS';
+    t.font = { name: 'Calibri', size: 20, bold: true, color: { argb: BLANCO } };
+    t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ROJO } };
+    t.alignment = { horizontal: 'center', vertical: 'middle' };
+    t.border = { top: negro, left: negro, bottom: negro, right: negro };
+    ws.getRow(2).height = 26.4;
+
+    function etiqueta(ref, txt, borde) {
+        const cel = ws.getCell(ref);
+        cel.value = txt;
+        cel.font = { name: 'Calibri', size: 11, bold: true, color: { argb: BLANCO } };
+        cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ROJO } };
+        cel.alignment = { horizontal: 'center', vertical: 'middle' };
+        cel.border = { top: borde, left: borde, bottom: borde, right: borde };
+    }
+    function valor(ref, v, fmt, size) {
+        const cel = ws.getCell(ref);
+        cel.value = v;
+        cel.font = { name: fmt ? 'Calibri' : 'Arial', size: size || 10, bold: true };
+        cel.alignment = { horizontal: 'center', vertical: 'middle' };
+        if (fmt) cel.numFmt = fmt;
+    }
+
+    etiqueta('B3', 'FECHA DE CONSULTA', fino);
+    valor('C3', aExcel(vtxFechaConsulta), 'dd/mm/yyyy hh:mm:ss', 12);
+    etiqueta('B5', 'CANTIDAD DE UNIDADES TOTALES', negro);      valor('C5', c.total);
+    etiqueta('B6', 'CANTIDAD DE UNIDADES FUERA DE GEOCERCA', negro); valor('C6', c.fuera);
+    etiqueta('B7', 'CANTIDAD DE UNIDADES DENTRO DE GEOCERCA', negro); valor('C7', c.dentro);
+
+    // Filtros aplicados (en lugar de los segmentadores)
+    function filtroTxt(nombre, arr, todos) {
+        return nombre + ': ' + (arr.length ? arr.join(', ') : todos);
+    }
+    [['E4', filtroTxt('ESTATUS', vtxFiltro.estatus, 'TODOS')],
+     ['E5', filtroTxt('FILTRO OPERACIÓN', vtxFiltro.op, 'TODAS')],
+     ['E6', 'PLACAS: ' + (vtxPlacasSel.length ? lista.map(function (f) { return f.placa; }).join(', ') : 'TODAS')]].forEach(function (p) {
+        const cel = ws.getCell(p[0]);
+        cel.value = p[1];
+        cel.font = { name: 'Calibri', size: 11, bold: true, color: { argb: BLANCO } };
+        cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL } };
+        cel.alignment = { vertical: 'middle', wrapText: true };
+    });
+
+    // Caja UNIDADES G4:G7
+    const u = ws.getCell('G4');
+    u.value = 'UNIDADES';
+    u.font = { name: 'Calibri', size: 22, bold: true };
+    u.alignment = { horizontal: 'center', vertical: 'middle' };
+    u.border = { top: negro, left: negro, bottom: negro, right: negro };
+    ws.mergeCells('G5:G7');
+    const un = ws.getCell('G5');
+    un.value = lista.length;
+    un.font = { name: 'Arial', size: 28, bold: true };
+    un.alignment = { horizontal: 'center', vertical: 'middle' };
+    un.border = { top: negro, left: negro, bottom: negro, right: negro };
+
+    // Tabla (estilo PivotStyleMedium2)
+    const hdr = ['Placa', 'Conductor', 'Último registro GPS', 'Dirección de la última parada', 'Estado', 'LINK PLATAFORMA GEOTAB'];
+    const rh = ws.getRow(10);
+    hdr.forEach(function (h, i) {
+        const cel = rh.getCell(i + 2);
+        cel.value = h;
+        cel.font = { name: 'Arial', size: 11, bold: true, color: { argb: BLANCO } };
+        cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL } };
+        cel.alignment = { vertical: 'middle' };
+        cel.border = { bottom: { style: 'medium', color: { argb: 'FF1B3560' } } };
+    });
+    lista.forEach(function (f, i) {
+        const r = ws.getRow(11 + i);
+        const link = vtxLinkGeotab(f);
+        const vals = [f.placa, f.conductor, aExcel(f.ultimoGps), f.lugar, f.estado, { text: 'Ver en Geotab', hyperlink: link }];
+        vals.forEach(function (v, k) {
+            const cel = r.getCell(k + 2);
+            cel.value = v;
+            cel.font = k === 5 ? { name: 'Arial', size: 10, color: { argb: 'FF0563C1' }, underline: true } : { name: 'Arial', size: 10, bold: k === 0 };
+            if (i % 2 === 0) cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: FRANJA } };
+            cel.border = { bottom: { style: 'thin', color: { argb: FRANJA } } };
+            cel.alignment = { vertical: 'top', wrapText: k === 3 };
+            if (k === 2) cel.numFmt = 'dd/mm/yyyy h:mm:ss AM/PM';
+        });
+    });
+    ws.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } };
+    ws.autoFilter = { from: { row: 10, column: 2 }, to: { row: 10 + Math.max(lista.length, 1), column: 7 } };
+
+    const buf = await wb.xlsx.writeBuffer();
+    const l = vtxLima(vtxFechaConsulta);
+    const nombre = 'Reporte_Zonas_Autorizadas_' + l.getUTCFullYear() + vtxPad(l.getUTCMonth() + 1) + vtxPad(l.getUTCDate()) + '_' + vtxPad(l.getUTCHours()) + vtxPad(l.getUTCMinutes()) + '.xlsx';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    a.download = nombre;
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+// ---------------- Copiar mensaje ----------------
+function vtxCopiar() {
+    const txt = vtxMensaje();
+    if (!txt) return;
+    const ok = function () {
+        const b = $('vtx-btn-copiar'); const o = b.textContent;
+        b.textContent = '¡Copiado!'; setTimeout(function () { b.textContent = o; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(ok, function () { vtxCopiarRespaldo(txt); ok(); });
+    } else { vtxCopiarRespaldo(txt); ok(); }
+}
+function vtxCopiarRespaldo(txt) {
+    const ta = document.createElement('textarea');
+    ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e) { }
+    ta.remove();
+}
+
+// ---------------- Cableado de la interfaz ----------------
+// Cada elemento se marca con data-vtx-wired: si MyGeotab recrea el HTML al volver al
+// Add-In, se vuelve a cablear; si es el mismo elemento, no se duplican eventos.
+function vtxCablear(id, evento, fn) {
+    const el = $(id);
+    if (!el || el.dataset.vtxWired === evento) return;
+    el.dataset.vtxWired = evento;
+    el.addEventListener(evento, fn);
+}
+
+let vtxDocListener = false;
+function vtxConfigurarUI() {
+    const fecha = $('vtx-fecha'), selH = $('vtx-hora'), selM = $('vtx-min');
+    if (!fecha) return;
+    if (!selH.options.length) {
+        selH.innerHTML = Array.from({ length: 24 }, function (_, h) { return '<option value="' + vtxPad(h) + '">' + vtxPad(h) + ' h</option>'; }).join('');
+        selM.innerHTML = Array.from({ length: 60 }, function (_, m) { return '<option value="' + vtxPad(m) + '">' + vtxPad(m) + ' min</option>'; }).join('');
+        const ahora = vtxLima(new Date());
+        fecha.value = ahora.getUTCFullYear() + '-' + vtxPad(ahora.getUTCMonth() + 1) + '-' + vtxPad(ahora.getUTCDate());
+        selH.value = vtxPad(ahora.getUTCHours());
+        selM.value = vtxPad(ahora.getUTCMinutes());
+    }
+
+    vtxCablear('vtx-btn-consultar', 'click', vtxConsultar);
+    vtxCablear('vtx-btn-exportar', 'click', function () { vtxExportar().catch(function (e) { console.error('[VTX]', e); alert('Error al exportar: ' + e.message); }); });
+    vtxCablear('vtx-btn-copiar', 'click', vtxCopiar);
+
+    [['vtx-sl-estatus', 'estatus'], ['vtx-sl-op', 'op']].forEach(function (s) {
+        vtxCablear(s[0], 'click', function (e) {
+            const b = e.target.closest('.vtx-slicer-item'); if (!b) return;
+            const v = b.getAttribute('data-v'), arr = vtxFiltro[s[1]], i = arr.indexOf(v);
+            if (i === -1) arr.push(v); else arr.splice(i, 1);
+            if (s[1] === 'op') vtxLimpiarPlacasFueraDeOp();
+            vtxRender();
+        });
+    });
+    vtxCablear('vtx-clr-estatus', 'click', function () { vtxFiltro.estatus = []; vtxRender(); });
+    vtxCablear('vtx-clr-op', 'click', function () { vtxFiltro.op = []; vtxRender(); });
+
+    vtxCablear('vtx-thead', 'click', function (e) {
+        const th = e.target.closest('th'); if (!th) return;
+        const k = th.getAttribute('data-k'); if (k === '_link') return;
+        if (vtxOrden.k === k) vtxOrden.dir = -vtxOrden.dir; else { vtxOrden.k = k; vtxOrden.dir = 1; }
+        vtxRender();
+    });
+
+    // Combo de placas
+    const abrir = function () { vtxRenderListaPlacas($('vtx-placa-txt').value); $('vtx-combo-lista').classList.add('vtx-open'); };
+    vtxCablear('vtx-placa-txt', 'focus', abrir);
+    const inp = $('vtx-placa-txt');
+    if (inp && inp.dataset.vtxWiredInput !== '1') { inp.dataset.vtxWiredInput = '1'; inp.addEventListener('input', abrir); }
+    vtxCablear('vtx-combo-lista', 'click', function (e) {
+        const it = e.target.closest('.vtx-combo-item'); if (!it) return;
+        e.stopPropagation();
+        const id = it.getAttribute('data-id'), i = vtxPlacasSel.indexOf(id);
+        if (i === -1) vtxPlacasSel.push(id); else vtxPlacasSel.splice(i, 1);
+        $('vtx-placa-txt').value = '';
+        vtxRenderChips(); vtxRenderListaPlacas(''); vtxRender();
+    });
+    vtxCablear('vtx-combo-chips', 'click', function (e) {
+        const x = e.target.closest('.vtx-chip-x'); if (!x) { $('vtx-placa-txt').focus(); return; }
+        e.stopPropagation();
+        vtxPlacasSel = vtxPlacasSel.filter(function (id) { return id !== x.getAttribute('data-id'); });
+        vtxRenderChips(); vtxRender();
+    });
+    if (!vtxDocListener) {
+        vtxDocListener = true;
+        document.addEventListener('click', function (e) {
+            const combo = $('vtx-combo'), lista = $('vtx-combo-lista');
+            if (combo && lista && !combo.contains(e.target)) lista.classList.remove('vtx-open');
+        });
+    }
+    vtxRenderChips();
+    vtxRender();
+}
+
+function vtxLimpiarPlacasFueraDeOp() {
+    if (!vtxFiltro.op.length) return;
+    const src = vtxFilas.length ? vtxFilas : vtxDispositivos;
+    vtxPlacasSel = vtxPlacasSel.filter(function (id) {
+        const d = src.find(function (x) { return x.id === id; });
+        return d && vtxFiltro.op.indexOf(d.op) !== -1;
+    });
+    vtxRenderChips();
+}
+
+// ---------------- Entrada del Add-In ----------------
+geotab.addin.ValidacionTransmisionARDEPE = function () {
+    return {
+        initialize: function (api, state, callback) {
+            vtxApi = api;
+            try { callback(); } catch (e) { console.error('[VTX] callback', e); }
+            setTimeout(function () {
+                vtxConfigurarUI();
+                try {
+                    api.getSession(function (cred, server) {
+                        vtxSesion = { database: cred && cred.database || '', server: server || location.host };
+                    });
+                } catch (e) { }
+                vtxCargarDispositivos(null).then(function (l) { vtxDispositivos = l; }).catch(function (e) { console.warn('[VTX] catalogo', e); });
+            }, 0);
+        },
+        focus: function (api) {
+            vtxApi = api;
+            vtxConfigurarUI();
+        },
+        blur: function () { }
+    };
+};
+
+})();
+</script>
+</body>
+</html>
