@@ -333,13 +333,13 @@
 #vtx-root #vtx-minimapa { height: 280px; background: #e7ecf1; isolation: isolate; }
 #vtx-root .vtx-mapa-leyenda, #vtx-root #vtx-mapa-info { padding: 4px 10px; font-size: 11px; color: var(--vtx-gris); }
 #vtx-root .vtx-mapa-icono { background: transparent; border: 0; }
-#vtx-root .vtx-mapa-marca { display: block; width: 20px; height: 20px; border: 2px solid white; background: #b91c1c; filter: drop-shadow(0 1px 2px #222); }
+#vtx-root .vtx-mapa-marca { display: block; width: 20px; height: 20px; border: 2px solid white; background: #6b7280; filter: drop-shadow(0 1px 2px #222); }
 #vtx-root .vtx-mapa-dentro { background: #0b6b2f; }
 #vtx-root .vtx-mapa-triangulo { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 #vtx-root .vtx-mapa-sin-datos { transform: rotate(45deg) scale(.75); }
 #vtx-root .vtx-mapa-seleccion { outline: 3px solid #ffcc00; box-shadow: 0 0 0 4px #ffcc00; filter: drop-shadow(0 0 5px #ffcc00); }
 #vtx-root .vtx-mapa-placa { border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 #vtx-root .vtx-mapa-placa:focus-visible { outline: 2px solid var(--vtx-azul); }
-#vtx-root .vtx-tabla .vtx-mapa-fila-seleccion td { background: #fff2b3; }
+#vtx-root .vtx-tabla .vtx-mapa-fila-seleccion .vtx-td-placa { background: #fff2b3; box-shadow: inset 4px 0 0 #eab308; }
 #vtx-root .vtx-mapa-bloqueado { pointer-events: none; opacity: .6; }
 @media (max-width: 1000px) { #vtx-root .vtx-mensaje-mapa { grid-template-columns: 1fr; } }
