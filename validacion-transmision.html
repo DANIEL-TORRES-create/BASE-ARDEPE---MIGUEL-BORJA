@@ -105,7 +105,7 @@
     <section class="vtx-mapa-panel" aria-label="Mapa de las unidades consultadas">
         <div class="vtx-mapa-encabezado"><b>POSICIONES DE LA CONSULTA</b><span>■ Detenido · ▲ Conduciendo · ◆ Sin datos de estado</span></div>
         <div id="vtx-minimapa"></div>
-        <div class="vtx-mapa-leyenda">Verde: dentro de PERNOCTE · Rojo: fuera · Calor: concentración de unidades</div>
+        <div class="vtx-mapa-leyenda">Verde: dentro de PERNOCTE · Rojo: fuera</div>
         <div id="vtx-mapa-info" role="status">El mapa se genera con la consulta.</div>
     </section>
     </div>
@@ -911,7 +911,6 @@ async function vtxMapaLibrerias() {
         vtxMapaCarga = (async function () {
             await vtxMapaRecurso('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', true);
             if (!window.L) await vtxMapaRecurso('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', false);
-            if (!window.L.heatLayer) await vtxMapaRecurso('https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js', false);
         })().catch(function (e) { vtxMapaCarga = null; throw e; });
     }
     await vtxMapaCarga;
@@ -960,12 +959,10 @@ function vtxMapaRender() {
         const p = vtxMapaDatos.get(f.id);
         return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180;
     });
-    const calor = ubicadas.map(function (f) { const p = vtxMapaDatos.get(f.id); return [p.lat, p.lon, 1]; });
-    if (calor.length) L.heatLayer(calor, { radius: 24, blur: 18, maxZoom: 14, minOpacity: 0.25 }).addTo(vtxMapaCapas);
     ubicadas.forEach(function (f) {
         const p = vtxMapaDatos.get(f.id), latlng = [p.lat, p.lon]; puntos.push(latlng);
         vtxZonasEn(vtxMapaZonas, p.lat, p.lon, vtxFechaConsulta).forEach(function (z) {
-            if (zonasDibujadas.has(z)) return;
+            if (!z.pernocte || zonasDibujadas.has(z)) return;
             zonasDibujadas.add(z);
             const color = z.pernocte ? '#0b6b2f' : '#25477b';
             L.polygon(z.points.map(function (pt) { return [pt.y, pt.x]; }), {
