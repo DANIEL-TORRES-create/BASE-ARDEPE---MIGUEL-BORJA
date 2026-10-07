@@ -324,3 +324,22 @@
 #vtx-root .vtx-check { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; cursor: pointer; font-size: 12px; }
 #vtx-root .vtx-check input { width: 16px; height: 16px; accent-color: #0b6b2f; cursor: pointer; }
 #vtx-root .vtx-editado { background: #fef3c7; color: #7a5c00; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 10px; text-transform: uppercase; }
+
+/* Minimapa: estilos aislados del reporte y de otros Add-Ins. */
+#vtx-root .vtx-mensaje-mapa { display: grid; grid-template-columns: minmax(280px, 520px) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
+#vtx-root .vtx-mensaje-mapa .vtx-msg { margin-bottom: 0; max-width: none; }
+#vtx-root .vtx-mapa-panel { min-width: 0; border: 1px solid #d7dce3; border-radius: 6px; overflow: hidden; background: #f8fafc; }
+#vtx-root .vtx-mapa-encabezado { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; padding: 7px 10px; font-size: 11px; color: var(--vtx-gris); }
+#vtx-root #vtx-minimapa { height: 280px; background: #e7ecf1; isolation: isolate; }
+#vtx-root .vtx-mapa-leyenda, #vtx-root #vtx-mapa-info { padding: 4px 10px; font-size: 11px; color: var(--vtx-gris); }
+#vtx-root .vtx-mapa-icono { background: transparent; border: 0; }
+#vtx-root .vtx-mapa-marca { display: block; width: 20px; height: 20px; border: 2px solid white; background: #b91c1c; filter: drop-shadow(0 1px 2px #222); }
+#vtx-root .vtx-mapa-dentro { background: #0b6b2f; }
+#vtx-root .vtx-mapa-triangulo { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+#vtx-root .vtx-mapa-sin-datos { transform: rotate(45deg) scale(.75); }
+#vtx-root .vtx-mapa-seleccion { outline: 3px solid #ffcc00; box-shadow: 0 0 0 4px #ffcc00; filter: drop-shadow(0 0 5px #ffcc00); }
+#vtx-root .vtx-mapa-placa { border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+#vtx-root .vtx-mapa-placa:focus-visible { outline: 2px solid var(--vtx-azul); }
+#vtx-root .vtx-tabla .vtx-mapa-fila-seleccion td { background: #fff2b3; }
+#vtx-root .vtx-mapa-bloqueado { pointer-events: none; opacity: .6; }
+@media (max-width: 1000px) { #vtx-root .vtx-mensaje-mapa { grid-template-columns: 1fr; } }
