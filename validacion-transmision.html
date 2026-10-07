@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="validacion-transmision.css?v=2">
+    <link rel="stylesheet" href="validacion-transmision.css?v=3">
 </head>
 <body>
 
@@ -105,7 +105,7 @@
     <section class="vtx-mapa-panel" aria-label="Mapa de las unidades consultadas">
         <div class="vtx-mapa-encabezado"><b>POSICIONES DE LA CONSULTA</b><span>■ Detenido · ▲ Conduciendo · ◆ Sin datos de estado</span></div>
         <div id="vtx-minimapa"></div>
-        <div class="vtx-mapa-leyenda">Verde: dentro de PERNOCTE · Rojo: fuera</div>
+        <div class="vtx-mapa-leyenda">Verde: dentro de PERNOCTE · Gris: fuera</div>
         <div id="vtx-mapa-info" role="status">El mapa se genera con la consulta.</div>
     </section>
     </div>
@@ -568,7 +568,7 @@ function vtxRender() {
     }
     $('vtx-tbody').innerHTML = lista.map(function (f) {
         const dentro = f.estatus === 'DENTRO DE GEOCERCA';
-        return '<tr data-vtx-id="' + vtxEsc(f.id) + '">' +
+        return '<tr data-vtx-id="' + vtxEsc(f.id) + '"' + (vtxMapaSeleccion === f.id ? ' class="vtx-mapa-fila-seleccion"' : '') + '>' +
             '<td class="vtx-td-placa">' + (vtxEditando ? '<button type="button" class="vtx-quitar" data-id="' + vtxEsc(f.id) + '" title="Retirar esta placa del cálculo">&#10005;</button>' : '') + '<button type="button" class="vtx-mapa-placa" data-vtx-mapa-id="' + vtxEsc(f.id) + '" title="Ubicar en el mapa">' + vtxEsc(f.placa) + '</button></td>' +
             '<td>' + vtxEsc(f.conductor) + '</td>' +
             '<td class="vtx-td-fecha">' + vtxEsc(vtxFmtFechaHora(f.ultimoGps)) + '</td>' +
@@ -852,6 +852,7 @@ function vtxConfigurarUI() {
         if (vtxMapaOcupado || vtxConsultando) return;
         const x = e.target.closest('.vtx-chip-x'); if (!x) { $('vtx-placa-txt').focus(); return; }
         e.stopPropagation();
+        vtxMapaQuitarSeleccion(x.getAttribute('data-id'));
         vtxPlacasSel = vtxPlacasSel.filter(function (id) { return id !== x.getAttribute('data-id'); });
         vtxRenderChips(); vtxRender();
     });
@@ -979,7 +980,7 @@ function vtxMapaRender() {
                 '<br>' + vtxEsc(vtxEstatus(f)) + (vtxAjusteZona[f.id] ? ' (ajuste manual)' : '') +
                 '<br>Último GPS: ' + vtxEsc(vtxFmtFechaHora(f.ultimoGps)) + '<br>' + vtxEsc(f.lugar))
             .addTo(vtxMapaCapas);
-        marcador.on('click', function () { vtxMapaResaltarFila(f.id); });
+        marcador.on('click', function () { vtxMapaSeleccionar(f.id); });
         vtxMapaMarcadores.set(f.id, marcador);
     });
     $('vtx-mapa-info').textContent = ubicadas.length + ' de ' + lista.length + ' unidades visibles con posición' +
@@ -994,6 +995,12 @@ function vtxMapaResaltarFila(id) {
     $('vtx-tbody').querySelectorAll('tr[data-vtx-id]').forEach(function (tr) {
         tr.classList.toggle('vtx-mapa-fila-seleccion', tr.getAttribute('data-vtx-id') === id);
     });
+}
+
+function vtxMapaQuitarSeleccion(id) {
+    if (vtxMapaSeleccion !== id) return;
+    vtxMapaSeleccion = null;
+    vtxMapaResaltarFila(null);
 }
 
 function vtxMapaSeleccionar(id) {
