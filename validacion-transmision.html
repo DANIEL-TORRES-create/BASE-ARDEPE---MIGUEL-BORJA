@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <link rel="stylesheet" href="validacion-transmision.css?v=1">
+    <link rel="stylesheet" href="validacion-transmision.css?v=2">
 </head>
 <body>
 
@@ -93,12 +93,21 @@
     </div>
 
     <!-- Mensaje para enviar (solo en el Add-In, no se exporta) -->
+    <div class="vtx-mensaje-mapa">
     <div class="vtx-msg">
         <div class="vtx-msg-hd">
             <span>Mensaje para enviar</span>
             <button type="button" class="vtx-btn vtx-btn-sec vtx-btn-mini" id="vtx-btn-copiar" disabled>Copiar mensaje</button>
         </div>
         <pre class="vtx-msg-txt" id="vtx-msg-txt">Se genera al consultar.</pre>
+    </div>
+
+    <section class="vtx-mapa-panel" aria-label="Mapa de las unidades consultadas">
+        <div class="vtx-mapa-encabezado"><b>POSICIONES DE LA CONSULTA</b><span>■ Detenido · ▲ Conduciendo · ◆ Sin datos de estado</span></div>
+        <div id="vtx-minimapa"></div>
+        <div class="vtx-mapa-leyenda">Verde: dentro de PERNOCTE · Rojo: fuera · Calor: concentración de unidades</div>
+        <div id="vtx-mapa-info" role="status">El mapa se genera con la consulta.</div>
+    </section>
     </div>
 
     <!-- Tabla igual a la tabla dinamica del DETALLADO -->
@@ -322,7 +331,7 @@ async function vtxCargarDispositivos(T) {
 }
 
 async function vtxConsultar() {
-    if (vtxConsultando) return;
+    if (vtxConsultando || vtxMapaOcupado) return;
     const fecha = $('vtx-fecha').value;
     if (!fecha) { vtxProgreso('Indica la fecha de consulta.'); return; }
     const T = vtxLimaAUtc(fecha, $('vtx-hora').value, $('vtx-min').value);
@@ -330,6 +339,7 @@ async function vtxConsultar() {
 
     vtxConsultando = true;
     $('vtx-btn-consultar').disabled = true; $('vtx-btn-exportar').disabled = true; $('vtx-btn-copiar').disabled = true;
+    vtxMapaLimpiar();
     vtxFilas = []; vtxFechaConsulta = T;
     vtxRetiradas = []; vtxAjusteZona = {}; vtxEditando = false; vtxRespaldo = null;
     vtxRender();
@@ -429,6 +439,7 @@ async function vtxConsultar() {
                 estado: x.rc.estado, estatus: x.rc.pos ? x.estatus : 'FUERA DE GEOCERCA'
             };
         });
+        await vtxMapaPreparar(recs, zonas);
         vtxProgreso('Listo: ' + vtxFilas.length + ' unidades evaluadas al ' + vtxFmtFechaHora(T), 1);
     } catch (e) {
         console.error('[VTX]', e);
@@ -544,6 +555,9 @@ function vtxRender() {
         '<button type="button" class="vtx-btn vtx-btn-sec vtx-btn-mini" id="vtx-restaurar-todas">Restaurar todas</button>' : '';
     $('vtx-retiradas').style.display = (vtxEditando && ret.length) ? 'flex' : 'none';
 
+    vtxMapaBloquear();
+    vtxMapaRender();
+
     // Tabla
     $('vtx-thead').innerHTML = '<tr>' + VTX_COLS.map(function (col) {
         return '<th data-k="' + col[0] + '">' + col[1] + (vtxOrden.k === col[0] ? (vtxOrden.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
@@ -554,8 +568,8 @@ function vtxRender() {
     }
     $('vtx-tbody').innerHTML = lista.map(function (f) {
         const dentro = f.estatus === 'DENTRO DE GEOCERCA';
-        return '<tr>' +
-            '<td class="vtx-td-placa">' + (vtxEditando ? '<button type="button" class="vtx-quitar" data-id="' + vtxEsc(f.id) + '" title="Retirar esta placa del cálculo">&#10005;</button>' : '') + vtxEsc(f.placa) + '</td>' +
+        return '<tr data-vtx-id="' + vtxEsc(f.id) + '">' +
+            '<td class="vtx-td-placa">' + (vtxEditando ? '<button type="button" class="vtx-quitar" data-id="' + vtxEsc(f.id) + '" title="Retirar esta placa del cálculo">&#10005;</button>' : '') + '<button type="button" class="vtx-mapa-placa" data-vtx-mapa-id="' + vtxEsc(f.id) + '" title="Ubicar en el mapa">' + vtxEsc(f.placa) + '</button></td>' +
             '<td>' + vtxEsc(f.conductor) + '</td>' +
             '<td class="vtx-td-fecha">' + vtxEsc(vtxFmtFechaHora(f.ultimoGps)) + '</td>' +
             '<td class="vtx-td-dir' + (dentro ? ' vtx-dentro' : '') + '">' + vtxEsc(f.lugar) + '</td>' +
@@ -770,6 +784,7 @@ function vtxConfigurarUI() {
 
     [['vtx-sl-estatus', 'estatus'], ['vtx-sl-op', 'op']].forEach(function (s) {
         vtxCablear(s[0], 'click', function (e) {
+            if (vtxMapaOcupado || vtxConsultando) return;
             const b = e.target.closest('.vtx-slicer-item'); if (!b) return;
             const v = b.getAttribute('data-v'), arr = vtxFiltro[s[1]], i = arr.indexOf(v);
             if (i === -1) arr.push(v); else arr.splice(i, 1);
@@ -798,6 +813,8 @@ function vtxConfigurarUI() {
         vtxRender();
     });
     vtxCablear('vtx-tbody', 'click', function (e) {
+        const placa = e.target.closest('[data-vtx-mapa-id]');
+        if (placa) { vtxMapaSeleccionar(placa.getAttribute('data-vtx-mapa-id')); return; }
         if (!vtxEditando) return;
         const b = e.target.closest('.vtx-quitar'); if (!b) return;
         const id = b.getAttribute('data-id');
@@ -823,6 +840,7 @@ function vtxConfigurarUI() {
     const inp = $('vtx-placa-txt');
     if (inp && inp.dataset.vtxWiredInput !== '1') { inp.dataset.vtxWiredInput = '1'; inp.addEventListener('input', abrir); }
     vtxCablear('vtx-combo-lista', 'click', function (e) {
+        if (vtxMapaOcupado || vtxConsultando) return;
         const it = e.target.closest('.vtx-combo-item'); if (!it) return;
         e.stopPropagation();
         const id = it.getAttribute('data-id'), i = vtxPlacasSel.indexOf(id);
@@ -831,6 +849,7 @@ function vtxConfigurarUI() {
         vtxRenderChips(); vtxRenderListaPlacas(''); vtxRender();
     });
     vtxCablear('vtx-combo-chips', 'click', function (e) {
+        if (vtxMapaOcupado || vtxConsultando) return;
         const x = e.target.closest('.vtx-chip-x'); if (!x) { $('vtx-placa-txt').focus(); return; }
         e.stopPropagation();
         vtxPlacasSel = vtxPlacasSel.filter(function (id) { return id !== x.getAttribute('data-id'); });
@@ -856,6 +875,139 @@ function vtxLimpiarPlacasFueraDeOp() {
     });
     vtxRenderChips();
 }
+
+// Minimapa: solo consume la misma instantanea y los mismos filtros del reporte.
+let vtxMapa = null, vtxMapaCarga = null, vtxMapaOcupado = false;
+let vtxMapaDatos = new Map(), vtxMapaZonas = [], vtxMapaCapas = null;
+let vtxMapaMarcadores = new Map(), vtxMapaSeleccion = null, vtxMapaEncuadrar = true;
+
+function vtxMapaBloquear() {
+    const ocupado = vtxMapaOcupado || vtxConsultando;
+    ['vtx-fecha', 'vtx-hora', 'vtx-min', 'vtx-placa-txt'].forEach(function (id) { $(id).disabled = ocupado; });
+    ['vtx-sl-estatus', 'vtx-sl-op'].forEach(function (id) {
+        $(id).querySelectorAll('button').forEach(function (b) { b.disabled = ocupado; });
+    });
+    $('vtx-clr-estatus').disabled = ocupado || !vtxFiltro.estatus.length;
+    $('vtx-clr-op').disabled = ocupado || !vtxFiltro.op.length;
+    $('vtx-btn-consultar').disabled = ocupado || vtxEditando;
+    $('vtx-btn-editar').disabled = ocupado || !vtxFilas.length;
+    $('vtx-combo').classList.toggle('vtx-mapa-bloqueado', ocupado);
+    if (ocupado) $('vtx-combo-lista').classList.remove('vtx-open');
+}
+
+function vtxMapaRecurso(url, css) {
+    return new Promise(function (resolve, reject) {
+        const el = document.createElement(css ? 'link' : 'script');
+        const timer = setTimeout(function () { el.remove(); reject(new Error('Tiempo de carga agotado')); }, 20000);
+        el.onload = function () { clearTimeout(timer); resolve(); };
+        el.onerror = function () { clearTimeout(timer); el.remove(); reject(new Error('No se pudo cargar el recurso del mapa')); };
+        if (css) { el.rel = 'stylesheet'; el.href = url; } else { el.src = url; }
+        document.head.appendChild(el);
+    });
+}
+
+async function vtxMapaLibrerias() {
+    if (!vtxMapaCarga) {
+        vtxMapaCarga = (async function () {
+            await vtxMapaRecurso('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', true);
+            if (!window.L) await vtxMapaRecurso('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', false);
+            if (!window.L.heatLayer) await vtxMapaRecurso('https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js', false);
+        })().catch(function (e) { vtxMapaCarga = null; throw e; });
+    }
+    await vtxMapaCarga;
+}
+
+function vtxMapaLimpiar() {
+    vtxMapaDatos = new Map(); vtxMapaZonas = []; vtxMapaSeleccion = null; vtxMapaEncuadrar = true;
+    if (vtxMapaCapas) vtxMapaCapas.clearLayers();
+    vtxMapaMarcadores.clear();
+    $('vtx-mapa-info').textContent = 'El mapa se genera con la consulta.';
+}
+
+async function vtxMapaPreparar(recs, zonas) {
+    vtxMapaOcupado = true;
+    vtxMapaBloquear();
+    $('vtx-mapa-info').textContent = 'Preparando mapa de la misma consulta…';
+    try {
+        // Se conservan las coordenadas originales: no se consulta la posicion actual.
+        vtxMapaDatos = new Map(recs.map(function (x) { return [x.d.id, x.rc.pos]; }));
+        vtxMapaZonas = zonas;
+        await vtxMapaLibrerias();
+        if (vtxMapa && vtxMapa.getContainer() !== $('vtx-minimapa')) { vtxMapa.remove(); vtxMapa = null; }
+        if (!vtxMapa) {
+            vtxMapa = window.L.map('vtx-minimapa').setView([-12.05, -77.04], 5);
+            window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap', maxZoom: 19
+            }).addTo(vtxMapa);
+            vtxMapaCapas = window.L.layerGroup().addTo(vtxMapa);
+        }
+        vtxMapaEncuadrar = true;
+        vtxMapaRender();
+    } catch (e) {
+        console.warn('[VTX] minimapa', e);
+        $('vtx-mapa-info').textContent = 'No se pudo cargar el mapa. El reporte permanece disponible. Vuelve a consultar para reintentar.';
+    } finally {
+        vtxMapaOcupado = false;
+        vtxMapaBloquear();
+    }
+}
+
+function vtxMapaRender() {
+    if (!vtxMapa || vtxMapa.getContainer() !== $('vtx-minimapa')) return;
+    const L = window.L, lista = vtxFiltradas(), puntos = [], zonasDibujadas = new Set();
+    vtxMapaCapas.clearLayers(); vtxMapaMarcadores.clear();
+    const ubicadas = lista.filter(function (f) {
+        const p = vtxMapaDatos.get(f.id);
+        return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180;
+    });
+    const calor = ubicadas.map(function (f) { const p = vtxMapaDatos.get(f.id); return [p.lat, p.lon, 1]; });
+    if (calor.length) L.heatLayer(calor, { radius: 24, blur: 18, maxZoom: 14, minOpacity: 0.25 }).addTo(vtxMapaCapas);
+    ubicadas.forEach(function (f) {
+        const p = vtxMapaDatos.get(f.id), latlng = [p.lat, p.lon]; puntos.push(latlng);
+        vtxZonasEn(vtxMapaZonas, p.lat, p.lon, vtxFechaConsulta).forEach(function (z) {
+            if (zonasDibujadas.has(z)) return;
+            zonasDibujadas.add(z);
+            const color = z.pernocte ? '#0b6b2f' : '#25477b';
+            L.polygon(z.points.map(function (pt) { return [pt.y, pt.x]; }), {
+                color: color, weight: 2, fillOpacity: 0.12
+            }).bindTooltip(vtxEsc(z.nombre)).addTo(vtxMapaCapas);
+        });
+        const forma = f.estado === 'Conduciendo' ? 'triangulo' : f.estado === 'Detenido' ? 'cuadrado' : 'sin-datos';
+        const color = vtxEstatus(f) === 'DENTRO DE GEOCERCA' ? 'dentro' : 'fuera';
+        const icon = L.divIcon({ className: 'vtx-mapa-icono', iconSize: [24, 24], iconAnchor: [12, 12],
+            html: '<span class="vtx-mapa-marca vtx-mapa-' + forma + ' vtx-mapa-' + color + (vtxMapaSeleccion === f.id ? ' vtx-mapa-seleccion' : '') + '"></span>' });
+        const marcador = L.marker(latlng, { icon: icon, zIndexOffset: vtxMapaSeleccion === f.id ? 1000 : 0 })
+            .bindTooltip(vtxEsc(f.placa))
+            .bindPopup('<b>' + vtxEsc(f.placa) + '</b><br>' + vtxEsc(f.conductor) + '<br>' + vtxEsc(f.estado) +
+                '<br>' + vtxEsc(vtxEstatus(f)) + (vtxAjusteZona[f.id] ? ' (ajuste manual)' : '') +
+                '<br>Último GPS: ' + vtxEsc(vtxFmtFechaHora(f.ultimoGps)) + '<br>' + vtxEsc(f.lugar))
+            .addTo(vtxMapaCapas);
+        marcador.on('click', function () { vtxMapaResaltarFila(f.id); });
+        vtxMapaMarcadores.set(f.id, marcador);
+    });
+    $('vtx-mapa-info').textContent = ubicadas.length + ' de ' + lista.length + ' unidades visibles con posición' +
+        (lista.length > ubicadas.length ? ' · ' + (lista.length - ubicadas.length) + ' sin posición' : '') +
+        ' · ' + vtxFmtFechaHora(vtxFechaConsulta, false);
+    vtxMapa.invalidateSize();
+    if (vtxMapaEncuadrar && puntos.length) vtxMapa.fitBounds(L.latLngBounds(puntos), { padding: [24, 24], maxZoom: 14 });
+    vtxMapaEncuadrar = true;
+}
+
+function vtxMapaResaltarFila(id) {
+    $('vtx-tbody').querySelectorAll('tr[data-vtx-id]').forEach(function (tr) {
+        tr.classList.toggle('vtx-mapa-fila-seleccion', tr.getAttribute('data-vtx-id') === id);
+    });
+}
+
+function vtxMapaSeleccionar(id) {
+    const marcador = vtxMapaMarcadores.get(id);
+    if (!marcador) { $('vtx-mapa-info').textContent = 'Esta unidad no tiene una posición disponible en el mapa.'; return; }
+    vtxMapaSeleccion = id; vtxMapaEncuadrar = false; vtxMapaRender();
+    vtxMapaResaltarFila(id);
+    const nuevo = vtxMapaMarcadores.get(id);
+    vtxMapa.setView(nuevo.getLatLng(), Math.max(vtxMapa.getZoom(), 14)); nuevo.openPopup();
+}
+
 
 // ---------------- Entrada del Add-In ----------------
 geotab.addin.ValidacionTransmisionARDEPE = function () {
