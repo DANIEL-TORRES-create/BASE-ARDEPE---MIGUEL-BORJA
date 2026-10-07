@@ -881,6 +881,7 @@ function vtxLimpiarPlacasFueraDeOp() {
 let vtxMapa = null, vtxMapaCarga = null, vtxMapaOcupado = false;
 let vtxMapaDatos = new Map(), vtxMapaZonas = [], vtxMapaCapas = null;
 let vtxMapaMarcadores = new Map(), vtxMapaSeleccion = null, vtxMapaEncuadrar = true;
+let vtxMapaRedibujando = false;
 
 function vtxMapaBloquear() {
     const ocupado = vtxMapaOcupado || vtxConsultando;
@@ -955,7 +956,9 @@ async function vtxMapaPreparar(recs, zonas) {
 function vtxMapaRender() {
     if (!vtxMapa || vtxMapa.getContainer() !== $('vtx-minimapa')) return;
     const L = window.L, lista = vtxFiltradas(), puntos = [], zonasDibujadas = new Set();
-    vtxMapaCapas.clearLayers(); vtxMapaMarcadores.clear();
+    vtxMapaRedibujando = true;
+    try { vtxMapaCapas.clearLayers(); } finally { vtxMapaRedibujando = false; }
+    vtxMapaMarcadores.clear();
     const ubicadas = lista.filter(function (f) {
         const p = vtxMapaDatos.get(f.id);
         return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180;
@@ -998,9 +1001,14 @@ function vtxMapaResaltarFila(id) {
 }
 
 function vtxMapaQuitarSeleccion(id) {
-    if (vtxMapaSeleccion !== id) return;
     vtxMapaSeleccion = null;
     vtxMapaResaltarFila(null);
+    vtxMapaMarcadores.forEach(function (marcador) {
+        const el = marcador.getElement && marcador.getElement();
+        if (el) el.querySelectorAll('.vtx-mapa-seleccion').forEach(function (marca) { marca.classList.remove('vtx-mapa-seleccion'); });
+        if (marcador.setZIndexOffset) marcador.setZIndexOffset(0);
+    });
+    if (vtxMapa && vtxMapa.closePopup) vtxMapa.closePopup();
 }
 
 function vtxMapaSeleccionar(id) {
@@ -1009,6 +1017,9 @@ function vtxMapaSeleccionar(id) {
     vtxMapaSeleccion = id; vtxMapaEncuadrar = false; vtxMapaRender();
     vtxMapaResaltarFila(id);
     const nuevo = vtxMapaMarcadores.get(id);
+    nuevo.on('popupclose', function () {
+        if (!vtxMapaRedibujando && vtxMapaSeleccion === id) vtxMapaQuitarSeleccion(id);
+    });
     vtxMapa.setView(nuevo.getLatLng(), Math.max(vtxMapa.getZoom(), 14)); nuevo.openPopup();
 }
 
