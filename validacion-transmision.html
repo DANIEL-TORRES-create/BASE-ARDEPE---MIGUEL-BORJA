@@ -137,6 +137,9 @@
      - DENTRO DE GEOCERCA si la posicion cae en una zona del tipo PERNOCTE
      - Si no: nombres de las zonas donde este (de cualquier tipo)
      - Si no hay zonas: direccion referencial
+     - Validacion extra (silenciosa): las unidades DETENIDAS que salen FUERA se
+       reevaluan con el punto de fin del ultimo viaje y los registros de la
+       parada. Solo puede pasar de FUERA a DENTRO, nunca al reves.
    Todo el codigo vive dentro de este IIFE: no se crean funciones globales.
    ========================================================================== */
 
@@ -153,6 +156,8 @@ const VTX_CFG = {
     LOG_ANTES_MIN: 90,              // ventana de LogRecord antes de la hora consultada
     LOG_DESPUES_MIN: 5,             // y despues (solo para confirmar movimiento)
     VEL_MOVIMIENTO: 5,              // km/h para considerar que esta en movimiento
+    TOL_BORDE_M: 20,                // metros de tolerancia en el borde de la zona (solo validacion extra, unidades detenidas)
+    EXTRA_ATRAS_H: 24,              // maximo de horas hacia atras para los registros de la parada en la validacion extra
     BLOQUE: 30,                     // llamadas por multiCall
     PAUSA_MS: 250,
     REINTENTOS: 3,
@@ -258,6 +263,32 @@ function vtxZonasEn(zonas, lat, lon, cuando) {
         return vtxPuntoEnPoligono(lat, lon, z.points);
     });
 }
+// Distancia minima (metros) de un punto al borde de un poligono (aproximacion plana, valida para distancias cortas)
+function vtxDistBordeM(lat, lon, pts) {
+    const kLat = 111320, kLon = 111320 * Math.cos(lat * Math.PI / 180);
+    let min = Infinity;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const ax = (pts[j].x - lon) * kLon, ay = (pts[j].y - lat) * kLat;
+        const bx = (pts[i].x - lon) * kLon, by = (pts[i].y - lat) * kLat;
+        const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+        let t = len2 ? -(ax * dx + ay * dy) / len2 : 0;
+        t = Math.max(0, Math.min(1, t));
+        const d = Math.hypot(ax + t * dx, ay + t * dy);
+        if (d < min) min = d;
+    }
+    return min;
+}
+// Igual que vtxZonasEn pero acepta una tolerancia en metros (solo se usa en la validacion extra)
+function vtxZonasEnTol(zonas, lat, lon, cuando, tolM) {
+    const dLat = tolM / 111320, dLon = tolM / (111320 * Math.max(Math.cos(lat * Math.PI / 180), 0.01));
+    return zonas.filter(function (z) {
+        if (lon < z.minX - dLon || lon > z.maxX + dLon || lat < z.minY - dLat || lat > z.maxY + dLat) return false;
+        if (z.desde && cuando < z.desde) return false;
+        if (z.hasta && cuando > z.hasta) return false;
+        if (vtxPuntoEnPoligono(lat, lon, z.points)) return true;
+        return tolM > 0 && vtxDistBordeM(lat, lon, z.points) <= tolM;
+    });
+}
 
 // ---------------- Reconstruccion del estado a la hora consultada ----------------
 function vtxReconstruir(T, viajes, logs) {
@@ -284,7 +315,14 @@ function vtxReconstruir(T, viajes, logs) {
 
     let pos = ultimoLog ? { lat: ultimoLog.latitude, lon: ultimoLog.longitude } : null;
     if (!pos && ultimoViaje && ultimoViaje.stopPoint && estado === 'Detenido') pos = { lat: ultimoViaje.stopPoint.y, lon: ultimoViaje.stopPoint.x };
-    return { estado: estado, ultimoLog: ultimoLog, ultimoViaje: ultimoViaje, pos: pos };
+
+    // Punto donde termino el ultimo viaje (unidad detenida): se usa en la validacion extra
+    let posFin = null;
+    if (estado === 'Detenido' && ultimoViaje && ultimoViaje.stopPoint && vtxD(ultimoViaje.stop) <= T) {
+        const sp = ultimoViaje.stopPoint;
+        if (Number.isFinite(sp.y) && Number.isFinite(sp.x) && (sp.x || sp.y)) posFin = { lat: sp.y, lon: sp.x, cuando: vtxD(ultimoViaje.stop) };
+    }
+    return { estado: estado, ultimoLog: ultimoLog, ultimoViaje: ultimoViaje, pos: pos, posFin: posFin };
 }
 
 function vtxConductorA(T, cambios, viaje, mapaCond) {
@@ -330,6 +368,64 @@ async function vtxCargarDispositivos(T) {
     return lista;
 }
 
+// Validacion extra (silenciosa): reevalua SOLO las unidades detenidas que salieron FUERA.
+// Usa el punto de fin del ultimo viaje y los registros de la parada. Solo puede pasar
+// de FUERA a DENTRO; si algo falla, se conserva el resultado original.
+async function vtxValidacionExtra(recs, zonas, T) {
+    const pend = recs.filter(function (x) {
+        return x.estatus === 'FUERA DE GEOCERCA' && x.rc.estado === 'Detenido' && (x.rc.pos || x.rc.posFin);
+    });
+    if (!pend.length) return;
+    vtxProgreso('Validación extra de unidades detenidas', 0.85);
+
+    // Registros de la parada (desde el fin del ultimo viaje hasta la hora consultada)
+    const conViaje = pend.filter(function (x) { return x.rc.ultimoViaje && vtxD(x.rc.ultimoViaje.stop) <= T; });
+    const logsPor = {};
+    try {
+        const calls = conViaje.map(function (x) {
+            const stop = vtxD(x.rc.ultimoViaje.stop);
+            const desde = new Date(Math.max(+stop - 60e3, +T - VTX_CFG.EXTRA_ATRAS_H * 3600e3));
+            return ['Get', { typeName: 'LogRecord', search: { deviceSearch: { id: x.d.id }, fromDate: desde.toISOString(), toDate: T.toISOString() }, resultsLimit: 2000 }];
+        });
+        for (let i = 0; i < calls.length; i += VTX_CFG.BLOQUE) {
+            const parte = calls.slice(i, i + VTX_CFG.BLOQUE);
+            try {
+                const r = await vtxConReintento(function () { return vtxMulti(parte); });
+                parte.forEach(function (_, k) { logsPor[conViaje[i + k].d.id] = r[k] || []; });
+            } catch (e) { console.warn('[VTX] validacion extra (bloque)', e); }
+            if (i + VTX_CFG.BLOQUE < calls.length) await vtxSleep(VTX_CFG.PAUSA_MS);
+        }
+    } catch (e) { console.warn('[VTX] validacion extra', e); }
+
+    pend.forEach(function (x) {
+        try {
+            const cands = [];
+            if (x.rc.posFin) cands.push({ lat: x.rc.posFin.lat, lon: x.rc.posFin.lon, cuando: x.rc.posFin.cuando });
+            (logsPor[x.d.id] || []).forEach(function (l) {
+                const f = vtxD(l.dateTime);
+                if (!(l.latitude || l.longitude) || !f || f > T || (l.speed || 0) > VTX_CFG.VEL_MOVIMIENTO) return;
+                cands.push({ lat: l.latitude, lon: l.longitude, cuando: f });
+            });
+            if (x.rc.pos) cands.push({ lat: x.rc.pos.lat, lon: x.rc.pos.lon, cuando: x.rc.ultimoLog ? vtxD(x.rc.ultimoLog.dateTime) : T });
+
+            const tolerancias = [0, VTX_CFG.TOL_BORDE_M];
+            for (let t = 0; t < tolerancias.length; t++) {
+                for (let c = 0; c < cands.length; c++) {
+                    const p = cands[c];
+                    if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+                    const pern = vtxZonasEnTol(zonas, p.lat, p.lon, p.cuando, tolerancias[t]).filter(function (z) { return z.pernocte; });
+                    if (pern.length) {
+                        x.estatus = 'DENTRO DE GEOCERCA';
+                        x.rc.pos = { lat: p.lat, lon: p.lon };
+                        x.lugar = pern.map(function (z) { return z.nombre; }).join(', ');
+                        return;
+                    }
+                }
+            }
+        } catch (e) { console.warn('[VTX] validacion extra (unidad)', e); }
+    });
+}
+
 async function vtxConsultar() {
     if (vtxConsultando || vtxMapaOcupado) return;
     const fecha = $('vtx-fecha').value;
@@ -360,7 +456,16 @@ async function vtxConsultar() {
             const n = ((u.lastName || '') + ' ' + (u.firstName || '')).trim().toUpperCase();
             mapaCond[u.id] = n || u.name || '';
         });
-        const zonas = vtxPrepararZonas(base[1]);
+        let zonas = vtxPrepararZonas(base[1]);
+        // Carga de zonas protegida: si llegan vacias o sin ninguna de tipo PERNOCTE, se reintenta en silencio
+        for (let k = 0; k < 2 && (!zonas.length || !zonas.some(function (z) { return z.pernocte; })); k++) {
+            await vtxSleep(600);
+            try {
+                const z2 = await vtxConReintento(function () { return vtxCall('Get', { typeName: 'Zone', resultsLimit: 10000 }); });
+                const p2 = vtxPrepararZonas(z2);
+                if (p2.length) zonas = p2;
+            } catch (e) { console.warn('[VTX] recarga de zonas', e); }
+        }
 
         const tIso = T.toISOString();
         const desdeViajes = new Date(T - VTX_CFG.TRIP_ATRAS_H * 3600e3).toISOString();
@@ -414,6 +519,9 @@ async function vtxConsultar() {
             x.lugar = pern.length ? pern.map(function (z) { return z.nombre; }).join(', ')
                 : otras.map(function (z) { return z.nombre; }).join(', ');
         });
+
+        // Validacion extra de unidades detenidas que salieron FUERA (silenciosa, bloquea igual que la consulta)
+        await vtxValidacionExtra(recs, zonas, T);
 
         // Direccion referencial solo para las que no estan en ninguna zona
         const sinZona = recs.filter(function (x) { return !x.lugar && x.rc.pos; });
@@ -521,6 +629,7 @@ function vtxRender() {
     const hay = vtxFilas.length > 0;
     const c = vtxConteos();
     const lista = vtxFiltradas();
+    const nCols = VTX_COLS.length + (vtxEditando ? 1 : 0);
     $('vtx-val-fecha').textContent = vtxFechaConsulta ? vtxFmtFechaHora(vtxFechaConsulta) : '--';
     $('vtx-val-total').textContent = hay ? c.total : '--';
     $('vtx-val-fuera').textContent = hay ? c.fuera : '--';
@@ -563,11 +672,11 @@ function vtxRender() {
         return '<th data-k="' + col[0] + '">' + col[1] + (vtxOrden.k === col[0] ? (vtxOrden.dir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
     }).join('') + (vtxEditando ? '<th data-k="_edit" class="vtx-th-edit">Dentro de zona</th>' : '') + '</tr>';
     if (!hay) {
-        if (!vtxConsultando) $('vtx-tbody').innerHTML = '<tr><td colspan="6" class="vtx-vacio">Elige la fecha y hora de consulta y presiona <b>Consultar</b>.</td></tr>';
+        if (!vtxConsultando) $('vtx-tbody').innerHTML = '<tr><td colspan="' + nCols + '" class="vtx-vacio">Elige la fecha y hora de consulta y presiona <b>Consultar</b>.</td></tr>';
         return;
     }
     $('vtx-tbody').innerHTML = lista.map(function (f) {
-        const dentro = f.estatus === 'DENTRO DE GEOCERCA';
+        const dentro = vtxEstatus(f) === 'DENTRO DE GEOCERCA';
         return '<tr data-vtx-id="' + vtxEsc(f.id) + '"' + (vtxMapaSeleccion === f.id ? ' class="vtx-mapa-fila-seleccion"' : '') + '>' +
             '<td class="vtx-td-placa">' + (vtxEditando ? '<button type="button" class="vtx-quitar" data-id="' + vtxEsc(f.id) + '" title="Retirar esta placa del cálculo">&#10005;</button>' : '') + '<button type="button" class="vtx-mapa-placa" data-vtx-mapa-id="' + vtxEsc(f.id) + '" title="Ubicar en el mapa">' + vtxEsc(f.placa) + '</button></td>' +
             '<td>' + vtxEsc(f.conductor) + '</td>' +
@@ -577,7 +686,7 @@ function vtxRender() {
             '<td><a class="vtx-link" href="' + vtxEsc(vtxLinkGeotab(f)) + '" target="_blank" rel="noopener">Ver en Geotab</a></td>' +
             (vtxEditando ? '<td class="vtx-td-edit"><label class="vtx-check"><input type="checkbox" class="vtx-chk-zona" data-id="' + vtxEsc(f.id) + '"' + (vtxEstatus(f) === 'DENTRO DE GEOCERCA' ? ' checked' : '') + '> Dentro' + (vtxAjusteZona[f.id] ? ' <span class="vtx-editado">editado</span>' : '') + '</label></td>' : '') +
             '</tr>';
-    }).join('') || '<tr><td colspan="7" class="vtx-vacio">Sin unidades para los filtros elegidos.</td></tr>';
+    }).join('') || '<tr><td colspan="' + nCols + '" class="vtx-vacio">Sin unidades para los filtros elegidos.</td></tr>';
 }
 
 // ---------------- Combo de placas (multi-seleccion) ----------------
